@@ -1,5 +1,5 @@
-# Local dev dependencies: Azurite (Blob) and the Service Bus emulator.
-# docker compose up -d
+# Local dev: Azurite (Blob), the Service Bus emulator and the ocr_container.
+# docker compose up -d --build
 name: text-extraction
 
 services:
@@ -30,3 +30,17 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Emulator_Passw0rd!}"
+
+  # Runs continuously (IDLE_TIMEOUT=0) instead of as a KEDA-triggered job.
+  ocr:
+    build: ./ocr_container
+    restart: on-failure
+    environment:
+      STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
+      SERVICEBUS_CONNECTION_STRING: "Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+      CREATE_CONTAINERS: "true"
+      IDLE_TIMEOUT: "0"
+      OCR_WORKERS: "4"
+    depends_on:
+      - azurite
+      - servicebus
