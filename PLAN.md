@@ -112,7 +112,7 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 2. Create `rg-textextract-staging` and `rg-textextract-prod` in **northeurope**.
 3. Per env, create an Entra app with a federated credential for `repo:spyrosblock/text-extraction:environment:<env>`. Also add one for `pull_request` on staging, so PRs get what-if.
 4. Per env, grant **Contributor** and **Role Based Access Control Administrator** on the RG. The second role gets a condition that allows assigning only the data-plane roles listed above.
-5. Create the GitHub environments `staging` and `prod`. `prod` gets required reviewers. Set the environment variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RG`.
+5. Create the GitHub environments `staging` and `prod`. `prod` gets required reviewers. Set the environment variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RG`. Set the same variables at repo level with the staging values, because the PR what-if job runs without an environment. Environment variables override them.
 
 ---
 
@@ -121,9 +121,9 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 | Workflow | Trigger | Steps |
 |---|---|---|
 | `ci.yml` | PR | Go matrix over `producer`, `consumer` and `ocr_container`: `go vet`, `go test ./...` (the ocr job installs `tesseract-ocr` with `-eng` and `-ell`). Then `az bicep lint`/build and what-if against staging, posted to the PR |
-| `infra.yml` | push to `main`: `infra/**` | What-if, deploy the stack to staging, approval, deploy to prod |
-| `functions.yml` | push to `main`: `producer/**`, `consumer/**` (matrix per app, with path filtering) | Build `GOOS=linux GOARCH=amd64` and package (per Step 0), upload the artifact, deploy to staging with `Azure/functions-action@v1` (`sku: flexconsumption`), smoke test, approval, deploy the **same artifact** to prod |
-| `ocr.yml` | push to `main`: `ocr_container/**` | `docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}` (`GITHUB_TOKEN` with `packages: write`, no extra secret), then `az containerapp job update --image` on staging, approval, then the **same tag** on prod |
+| `infra.yml` | manual (`workflow_dispatch`) | What-if, deploy the stack to staging, approval, deploy to prod |
+| `functions.yml` | manual (`workflow_dispatch`, with an `app` input: `producer`, `consumer` or `both`; matrix over the chosen apps) | Build `GOOS=linux GOARCH=amd64` and package (per Step 0), upload the artifact, deploy to staging with `Azure/functions-action@v1` (`sku: flexconsumption`), smoke test, approval, deploy the **same artifact** to prod |
+| `ocr.yml` | manual (`workflow_dispatch`) | `docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}` (`GITHUB_TOKEN` with `packages: write`, no extra secret), then `az containerapp job update --image` on staging, approval, then the **same tag** on prod |
 
 **Smoke test** (`infra/smoke.sh`, used by `functions.yml` and run by hand):
 1. POST `test1.pdf` to `https://<producer>/api/extract`.
