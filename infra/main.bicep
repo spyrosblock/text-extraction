@@ -1,5 +1,5 @@
 // text-extraction: one environment (staging or prod) in one resource group.
-// Deployed as a deployment stack by infra.yml:
+// Deployed as a deployment stack by staging.yml and prod.yml:
 //   az stack group create -g <rg> -n text-extraction -f infra/main.bicep \
 //     -p infra/main.<env>.bicepparam \
 //     --deny-settings-mode none --action-on-unmanage deleteResources
@@ -16,7 +16,7 @@ param vnetAddressPrefix string = '10.20.0.0/22'
 @description('Public IPs/CIDRs allowed through the data account firewall, for Storage Browser.')
 param adminIpRules string[] = []
 
-@description('OCR job image. infra.yml passes the deployed one; the default is for the first deploy, before ocr.yml has pushed an image.')
+@description('OCR job image. The infra deploy passes the deployed one; the default is for the first deploy, before an OCR image has been pushed.')
 param ocrImage string = 'mcr.microsoft.com/k8se/quickstart-jobs:latest'
 
 @description('Log Analytics daily cap in GB; -1 = no cap.')

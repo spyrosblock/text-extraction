@@ -6,7 +6,7 @@ param jobName string
 @description('Infrastructure subnet; empty = no VNet. It can only be set when the environment is created.')
 param subnetId string = ''
 param workspaceId string
-@description('Current job image. infra.yml passes the deployed one so infra runs don\'t roll back ocr.yml.')
+@description('Current job image. The infra deploy passes the deployed one so infra runs don\'t roll back the OCR deploy.')
 param image string
 param identity {
   id: string

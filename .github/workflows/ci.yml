@@ -71,7 +71,7 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: What-if
         run: |
-          # Compare against the image the job runs now, as infra.yml deploys it.
+          # Compare against the image the job runs now, as staging.yml deploys it.
           OCR_IMAGE=$(az resource show -g "$RG" -n caj-ocr-staging --resource-type Microsoft.App/jobs \
             --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
           export OCR_IMAGE=${OCR_IMAGE:-mcr.microsoft.com/k8se/quickstart-jobs:latest}

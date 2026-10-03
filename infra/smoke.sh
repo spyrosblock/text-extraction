@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of one environment (PLAN.md, Step 3). Used by
-# functions.yml; also run by hand:
+# staging.yml; also run by hand:
 #
 #   az login
 #   infra/smoke.sh rg-textextract-staging
@@ -8,7 +8,7 @@
 # 1. POSTs a PDF with a text layer to the producer: expects "completed", then
 #    its text from the consumer.
 # 2. POSTs a scanned PDF: expects "queued", then the OCR job's text from the
-#    consumer. Needs the OCR image deployed (ocr.yml), not the quickstart one.
+#    consumer. Needs the OCR image deployed (target ocr), not the quickstart one.
 #
 # Reads the app names and host names from the deployment stack's outputs and
 # the producer's function key from ARM, so az needs Contributor on the RG.

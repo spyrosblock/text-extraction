@@ -1,7 +1,7 @@
 // A Flex Consumption plan and app running the native Go worker, with
 // identity-based host storage, deployment storage and App Insights.
-// Code is deployed separately (functions.yml); re-running this leaves the
-// package in the deployment container alone.
+// Code is deployed separately (staging.yml/prod.yml, target functions);
+// re-running this leaves the package in the deployment container alone.
 param location string
 param name string
 param planName string
@@ -93,7 +93,7 @@ resource app 'Microsoft.Web/sites@2024-11-01' = {
   }
 }
 
-// Deployments authenticate with Entra ID (functions.yml uses OIDC), so
+// Deployments authenticate with Entra ID (the deploy workflows use OIDC), so
 // publishing credentials stay off.
 resource scmBasicAuth 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-11-01' = {
   parent: app

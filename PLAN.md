@@ -31,7 +31,7 @@ The native Go worker on Flex is the biggest unknown. Before writing anything els
 3. Deploy with `func azure functionapp publish`, then with `func pack` plus zip/One Deploy.
 4. Call `/api/extract` with `test1.pdf`, which is about 90 MB class. Check the request body limit and the 230 s HTTP timeout.
 
-The findings decide the `runtime` block in `functionapp.bicep` and the deploy step in `functions.yml`.
+The findings decide the `runtime` block in `functionapp.bicep` and the functions deploy step in `staging.yml` and `prod.yml`.
 
 ---
 
@@ -99,7 +99,7 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 
 ### Code vs infra
 - Re-running Bicep leaves Flex code alone, because the package lives in the deployment container.
-- For the job image, `infra.yml` reads the current image with `az containerapp job show --query properties.template.containers[0].image` and passes it as `ocrImage`. On the first deploy, before any image has been pushed, it falls back to `mcr.microsoft.com/k8se/quickstart-jobs:latest`.
+- For the job image, the infra deploy in `staging.yml`/`prod.yml` reads the current image with `az containerapp job show --query properties.template.containers[0].image` and passes it as `ocrImage`. On the first deploy, before any image has been pushed, it falls back to `mcr.microsoft.com/k8se/quickstart-jobs:latest`.
 
 ### Deploy command
 `az stack group create --deny-settings-mode none --action-on-unmanage deleteResources` (a deployment stack), so resources removed from Bicep get deleted in Azure. Every PR also gets a what-if preview.
@@ -121,11 +121,10 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 | Workflow | Trigger | Steps |
 |---|---|---|
 | `ci.yml` | PR | Go matrix over `producer`, `consumer` and `ocr_container`: `go vet`, `go test ./...` (the ocr job installs `tesseract-ocr` with `-eng` and `-ell`). Then `az bicep lint`/build and what-if against staging, posted to the PR |
-| `infra.yml` | manual (`workflow_dispatch`) | What-if, deploy the stack to staging, approval, deploy to prod |
-| `functions.yml` | manual (`workflow_dispatch`, with an `app` input: `producer`, `consumer` or `both`; matrix over the chosen apps) | Build `GOOS=linux GOARCH=amd64` and package (per Step 0), upload the artifact, deploy to staging with `Azure/functions-action@v1` (`sku: flexconsumption`), smoke test, approval, deploy the **same artifact** to prod |
-| `ocr.yml` | manual (`workflow_dispatch`) | `docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}` (`GITHUB_TOKEN` with `packages: write`, no extra secret), then `az containerapp job update --image` on staging, approval, then the **same tag** on prod |
+| `staging.yml` | manual (`workflow_dispatch`, with a `target` input: `all`, `infra`, `functions` or `ocr`) | Build what the target needs: the Function apps (`GOOS=linux GOARCH=amd64`, packaged per Step 0) and/or the OCR image (`docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}`, `GITHUB_TOKEN` with `packages: write`, no extra secret). Then one deploy job, in order: what-if and the stack, `az containerapp job update --image`, `Azure/functions-action@v1` (`sku: flexconsumption`). Then the smoke test |
+| `prod.yml` | manual (`workflow_dispatch`, same `target` input) | Build the Function apps if needed, then one deploy job (so one approval) doing the same steps as staging. The OCR deploy reuses the **same tag** `staging.yml` pushed for the commit and fails if it doesn't exist |
 
-**Smoke test** (`infra/smoke.sh`, used by `functions.yml` and run by hand):
+**Smoke test** (`infra/smoke.sh`, used by `staging.yml` and run by hand):
 1. POST `test1.pdf` to `https://<producer>/api/extract`.
 2. Poll `POST https://<consumer>/api/text` with `{"id": …}` until it returns `200`, with a timeout.
 3. Pass a scanned PDF to exercise the OCR path.
