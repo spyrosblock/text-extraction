@@ -24,14 +24,9 @@ an id can read its text for a day.
 
 ## Retention
 
-Text is kept for one day. Blob lifecycle management deletes it
-([`infra/text-storage-lifecycle.json`](infra/text-storage-lifecycle.json)):
-
-```sh
-az storage account management-policy create \
-  --account-name <ACCOUNT> --resource-group <RG> \
-  --policy @infra/text-storage-lifecycle.json
-```
+Text is kept for one day. A blob lifecycle rule on the data account deletes it; it is deployed
+with the rest of the infrastructure
+([`infra/modules/storage-data.bicep`](../infra/modules/storage-data.bicep)).
 
 Lifecycle policies run about once a day, so a blob can outlive its day by up to ~24h. The
 consumer returns `404` for any blob last modified more than 24h ago, so the limit holds

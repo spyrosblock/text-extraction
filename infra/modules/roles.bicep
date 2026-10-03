@@ -129,39 +129,53 @@ resource ocrQueueOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // Functions host storage and deployment packages.
-var hostUsers = [identityNames.producer, identityNames.consumer]
-
-resource hostUser 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = [
-  for n in hostUsers: { name: n }
-]
-
-resource hostOwner 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
-  for (n, i) in hostUsers: {
-    scope: hostStorage
-    name: guid(hostStorage.id, hostUser[i].id, roles.blobDataOwner)
-    properties: {
-      principalId: hostUser[i].properties.principalId
-      principalType: 'ServicePrincipal'
-      roleDefinitionId: roleId(roles.blobDataOwner)
-    }
+resource producerHost 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: hostStorage
+  name: guid(hostStorage.id, producer.id, roles.blobDataOwner)
+  properties: {
+    principalId: producer.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(roles.blobDataOwner)
   }
-]
+}
+
+resource consumerHost 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: hostStorage
+  name: guid(hostStorage.id, consumer.id, roles.blobDataOwner)
+  properties: {
+    principalId: consumer.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(roles.blobDataOwner)
+  }
+}
 
 // Entra-authenticated telemetry.
-var telemetryUsers = [identityNames.producer, identityNames.consumer, identityNames.ocr]
-
-resource telemetryUser 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = [
-  for n in telemetryUsers: { name: n }
-]
-
-resource telemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
-  for (n, i) in telemetryUsers: {
-    scope: appInsights
-    name: guid(appInsights.id, telemetryUser[i].id, roles.monitoringMetricsPublisher)
-    properties: {
-      principalId: telemetryUser[i].properties.principalId
-      principalType: 'ServicePrincipal'
-      roleDefinitionId: roleId(roles.monitoringMetricsPublisher)
-    }
+resource producerTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: appInsights
+  name: guid(appInsights.id, producer.id, roles.monitoringMetricsPublisher)
+  properties: {
+    principalId: producer.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(roles.monitoringMetricsPublisher)
   }
-]
+}
+
+resource consumerTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: appInsights
+  name: guid(appInsights.id, consumer.id, roles.monitoringMetricsPublisher)
+  properties: {
+    principalId: consumer.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(roles.monitoringMetricsPublisher)
+  }
+}
+
+resource ocrTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: appInsights
+  name: guid(appInsights.id, ocr.id, roles.monitoringMetricsPublisher)
+  properties: {
+    principalId: ocr.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: roleId(roles.monitoringMetricsPublisher)
+  }
+}

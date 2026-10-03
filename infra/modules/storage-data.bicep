@@ -11,7 +11,26 @@ param adminIpRules string[]
 param enablePrivateNetworking bool
 param tags object
 
-var lifecycle = loadJsonContent('../../consumer/infra/text-storage-lifecycle.json')
+// Expire extracted text after a day. Lifecycle runs about once a day, so the
+// consumer also treats older blobs as gone (handler.Retention).
+var lifecycleRules = [
+  {
+    enabled: true
+    name: 'expire-extracted-text'
+    type: 'Lifecycle'
+    definition: {
+      filters: {
+        blobTypes: ['blockBlob']
+        prefixMatch: ['${textContainer}/']
+      }
+      actions: {
+        baseBlob: {
+          delete: { daysAfterModificationGreaterThan: 1 }
+        }
+      }
+    }
+  }
+]
 
 module account 'br/public:avm/res/storage/storage-account:0.33.1' = {
   params: {
@@ -38,7 +57,7 @@ module account 'br/public:avm/res/storage/storage-account:0.33.1' = {
         { name: textContainer, publicAccess: 'None' }
       ]
     }
-    managementPolicyRules: lifecycle.rules
+    managementPolicyRules: lifecycleRules
     enableTelemetry: false
     tags: tags
   }
