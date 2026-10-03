@@ -54,6 +54,17 @@ func TestExtract(t *testing.T) {
 		}
 	})
 
+	t.Run("page limit", func(t *testing.T) {
+		pages, err := e.Extract(ctx, pdftest.Build(make([]string, MaxPages)...))
+		if err != nil || len(pages) != MaxPages {
+			t.Fatalf("at the limit: got %d pages, err %v; want %d pages", len(pages), err, MaxPages)
+		}
+		_, err = e.Extract(ctx, pdftest.Build(make([]string, MaxPages+1)...))
+		if !errors.Is(err, ErrTooManyPages) {
+			t.Fatalf("over the limit: err = %v, want ErrTooManyPages", err)
+		}
+	})
+
 	t.Run("invalid pdf", func(t *testing.T) {
 		_, err := e.Extract(ctx, []byte("%PDF-1.4\nthis is not really a pdf"))
 		if !errors.Is(err, ErrInvalidPDF) {

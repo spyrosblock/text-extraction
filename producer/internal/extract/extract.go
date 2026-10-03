@@ -19,6 +19,12 @@ import (
 // (corrupt, not a PDF, password protected, ...).
 var ErrInvalidPDF = errors.New("invalid pdf")
 
+// MaxPages is the largest number of pages a PDF may have.
+const MaxPages = 200
+
+// ErrTooManyPages is returned when the PDF has more than MaxPages pages.
+var ErrTooManyPages = fmt.Errorf("pdf exceeds %d pages", MaxPages)
+
 // Extractor extracts per-page text from PDFs. It is safe for concurrent use;
 // concurrency is bounded by the size of the underlying PDFium pool.
 type Extractor struct {
@@ -65,6 +71,9 @@ func (e *Extractor) Extract(ctx context.Context, pdf []byte) ([]contract.Page, e
 	}
 	if count.PageCount == 0 {
 		return nil, fmt.Errorf("%w: no pages", ErrInvalidPDF)
+	}
+	if count.PageCount > MaxPages {
+		return nil, ErrTooManyPages
 	}
 
 	pages := make([]contract.Page, 0, count.PageCount)

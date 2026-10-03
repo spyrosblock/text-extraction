@@ -22,6 +22,7 @@ The ocr_container has threads that perform ocr in parallel in the pages of the p
 
 ### API contract
 Producer pdf size limit 90MB
+Producer pdf page limit 200 pages
 Consumer output format: json with per-page text. 
 
 ### Security

@@ -2,7 +2,7 @@
 
 Azure Functions app (native Go worker, Flex Consumption) exposing `POST /api/extract`.
 
-1. Reads the PDF (max 90MB) from the request:
+1. Reads the PDF (max 90MB, 200 pages) from the request:
    - raw body with `Content-Type: application/pdf` (or `application/octet-stream`), or
    - `multipart/form-data` with the PDF in the `file` field.
 2. Extracts the text layer of every page with PDFium (WebAssembly, no cgo).
@@ -10,7 +10,7 @@ Azure Functions app (native Go worker, Flex Consumption) exposing `POST /api/ext
    Otherwise → stores the PDF as `<id>.pdf` in `pdf-storage` and sends `{"id","blob"}` to `pdf_queue`.
 4. Responds `202 Accepted` with `{"id": "<uuid>", "status": "completed" | "queued"}`.
 
-Errors: `400` (not a PDF / bad multipart), `413` (>90MB), `415` (content type), `422` (PDF can't be opened), `500`.
+Errors: `400` (not a PDF / bad multipart), `413` (>90MB or >200 pages), `415` (content type), `422` (PDF can't be opened), `500`.
 
 ## Configuration
 

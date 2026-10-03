@@ -85,6 +85,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "could not read pdf")
 		return
 	}
+	if errors.Is(err, extract.ErrTooManyPages) {
+		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+		return
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "extract text", "error", err)
 		writeError(w, http.StatusInternalServerError, "text extraction failed")

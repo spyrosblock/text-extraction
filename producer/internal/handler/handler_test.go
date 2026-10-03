@@ -176,6 +176,8 @@ func TestRejections(t *testing.T) {
 		}, nil, http.StatusUnsupportedMediaType},
 		{"unreadable pdf", func(*testing.T) *http.Request { return rawRequest(fakePDF) },
 			fakeExtractor{err: extract.ErrInvalidPDF}, http.StatusUnprocessableEntity},
+		{"too many pages", func(*testing.T) *http.Request { return rawRequest(fakePDF) },
+			fakeExtractor{err: extract.ErrTooManyPages}, http.StatusRequestEntityTooLarge},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
