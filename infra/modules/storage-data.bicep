@@ -13,6 +13,8 @@ param tags object
 
 // Expire extracted text after a day. Lifecycle runs about once a day, so the
 // consumer also treats older blobs as gone (handler.Retention).
+// The OCR job deletes the PDFs it processes; the second rule only catches PDFs
+// whose message was dead-lettered or expired.
 var lifecycleRules = [
   {
     enabled: true
@@ -26,6 +28,22 @@ var lifecycleRules = [
       actions: {
         baseBlob: {
           delete: { daysAfterModificationGreaterThan: 1 }
+        }
+      }
+    }
+  }
+  {
+    enabled: true
+    name: 'expire-abandoned-pdfs'
+    type: 'Lifecycle'
+    definition: {
+      filters: {
+        blobTypes: ['blockBlob']
+        prefixMatch: ['${pdfContainer}/']
+      }
+      actions: {
+        baseBlob: {
+          delete: { daysAfterModificationGreaterThan: 7 }
         }
       }
     }

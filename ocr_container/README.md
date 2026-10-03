@@ -25,6 +25,10 @@ Each job execution takes messages one at a time and exits once the queue has bee
 | Bad message, id isn't a uuid, blob isn't `<id>.pdf`, PDF missing or unreadable | dead-lettered right away |
 | PDF missing but `<id>.json` exists (earlier delivery finished) | completed |
 
+A dead-lettered or expired message leaves its PDF in `pdf-storage`. A lifecycle rule
+(`expire-abandoned-pdfs` in [`infra/modules/storage-data.bicep`](../infra/modules/storage-data.bicep))
+deletes PDFs 7 days after they were last modified.
+
 The message lock is renewed every `LOCK_RENEW_INTERVAL` so large PDFs can take longer than the
 queue's 5 minute lock. If a renewal fails, processing stops and the message is abandoned.
 
