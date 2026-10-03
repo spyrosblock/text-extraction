@@ -55,6 +55,10 @@ SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
 gh repo view "$REPO" --json name >/dev/null
 
+# Subject prefix of the repo's OIDC tokens. Newer repos use immutable ids
+# (repo:<owner>@<owner id>/<repo>@<repo id>) rather than repo:<owner>/<repo>.
+SUB_PREFIX=$(gh api "repos/$REPO/actions/oidc/customization/sub" --jq ".sub_claim_prefix // \"repo:$REPO\"")
+
 # Role Based Access Control Administrator, limited to writing assignments of
 # ASSIGNABLE_ROLES to service principals and deleting assignments of those
 # roles (a deployment stack deletes assignments removed from Bicep).
@@ -149,10 +153,10 @@ for env in "${ENVS[@]}"; do
   app_id=$(ensure_app "gh-text-extraction-$env")
   sp_id=$(ensure_sp "$app_id")
   CLIENT_IDS[$env]=$app_id
-  ensure_federated_credential "$app_id" "github-env-$env" "repo:$REPO:environment:$env"
+  ensure_federated_credential "$app_id" "github-env-$env" "$SUB_PREFIX:environment:$env"
   if [[ "$env" == staging ]]; then
     # PR jobs run without an environment; ci.yml uses this for what-if.
-    ensure_federated_credential "$app_id" github-pull-request "repo:$REPO:pull_request"
+    ensure_federated_credential "$app_id" github-pull-request "$SUB_PREFIX:pull_request"
   fi
 
   log "[$env] Role assignments on $rg"
