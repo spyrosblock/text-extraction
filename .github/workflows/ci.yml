@@ -1,0 +1,97 @@
+# Pull request checks: Go vet/tests for the three components, Bicep
+# lint/build, and a what-if against staging posted to the PR.
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [producer, consumer, ocr_container]
+    defaults:
+      run:
+        working-directory: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.component }}/go.mod
+          cache-dependency-path: ${{ matrix.component }}/go.sum
+      - name: Install tesseract
+        if: matrix.component == 'ocr_container'
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ell
+      # The integration tag also vets the integration tests, which need the
+      # emulators to run.
+      - run: go vet -tags integration ./...
+      - run: go test ./...
+
+  bicep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: az bicep install
+      - run: az bicep lint --file infra/main.bicep
+      - run: az bicep build --file infra/main.bicep --stdout >/dev/null
+      - run: |
+          for p in infra/main.*.bicepparam; do
+            az bicep build-params --file "$p" --stdout >/dev/null
+          done
+
+  what-if:
+    needs: bicep
+    # Fork PRs get no OIDC token for this repo.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    # No environment: the staging app's pull_request federated credential and
+    # the repo-level variables (staging values) apply.
+    env:
+      RG: ${{ vars.AZURE_RG }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: What-if
+        run: |
+          # Compare against the image the job runs now, as infra.yml deploys it.
+          OCR_IMAGE=$(az resource show -g "$RG" -n caj-ocr-staging --resource-type Microsoft.App/jobs \
+            --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
+          export OCR_IMAGE=${OCR_IMAGE:-mcr.microsoft.com/k8se/quickstart-jobs:latest}
+          az deployment group what-if -g "$RG" \
+            -f infra/main.bicep -p infra/main.staging.bicepparam \
+            --exclude-change-types Ignore NoChange | tee what-if.txt
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "### Bicep what-if (staging)"
+            echo
+            echo "Commit ${{ github.event.pull_request.head.sha }}. Runs as a plain deployment, so resources the stack would delete aren't listed."
+            echo
+            echo '```diff'
+            # Strip colours; stay under the 64 KB comment limit.
+            sed 's/\x1b\[[0-9;]*m//g' what-if.txt | head -c 60000
+            echo '```'
+          } >comment.md
+          cat comment.md >>"$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR" --edit-last --create-if-none --body-file comment.md

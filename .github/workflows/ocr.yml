@@ -1,0 +1,75 @@
+# Builds the OCR image once, pushes it to ghcr.io tagged with the commit SHA,
+# points the staging job at it, then the prod job at the same tag after
+# approval (the prod environment's required reviewers).
+name: ocr
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ocr
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image ref
+        id: image
+        # ghcr.io needs a lowercase owner.
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ocr-container:$GITHUB_SHA" >>"$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: ocr_container
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  staging:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      RG: ${{ vars.AZURE_RG }}
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps: &deploy
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add -n containerapp --upgrade --yes
+      # infra.yml reads the image back from the job, so later stack deploys
+      # keep it.
+      - name: Update job image
+        run: |
+          job=$(az stack group show -g "$RG" -n text-extraction --query outputs.ocrJobName.value -o tsv)
+          az containerapp job update -g "$RG" -n "$job" --image "$IMAGE" \
+            --query 'properties.template.containers[0].image' -o tsv
+
+  prod:
+    needs: [build, staging]
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      RG: ${{ vars.AZURE_RG }}
+      IMAGE: ${{ needs.build.outputs.image }}
+    steps: *deploy

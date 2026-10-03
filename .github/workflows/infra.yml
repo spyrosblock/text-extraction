@@ -1,0 +1,61 @@
+# Deploys infra/main.bicep as a deployment stack: staging, then prod after
+# approval (the prod environment's required reviewers).
+name: infra
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# One stack deployment at a time.
+concurrency:
+  group: infra
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      ENV: staging
+      RG: ${{ vars.AZURE_RG }}
+    steps: &deploy
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # The image comes from ocr.yml; keep the one the job runs now. The
+      # bicepparam files read OCR_IMAGE and fall back to the quickstart image.
+      - name: Current OCR image
+        run: |
+          image=$(az resource show -g "$RG" -n "caj-ocr-$ENV" --resource-type Microsoft.App/jobs \
+            --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
+          echo "OCR image: ${image:-none yet, using the quickstart image}"
+          if [[ -n "$image" ]]; then
+            echo "OCR_IMAGE=$image" >>"$GITHUB_ENV"
+          fi
+      - name: What-if
+        run: |
+          az deployment group what-if -g "$RG" \
+            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
+            --exclude-change-types Ignore NoChange
+      - name: Deploy stack
+        run: |
+          az stack group create -g "$RG" -n text-extraction \
+            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
+            --deny-settings-mode none --action-on-unmanage deleteResources \
+            --description "text-extraction $ENV, ${{ github.sha }}" \
+            --yes --query outputs -o json
+
+  prod:
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      ENV: prod
+      RG: ${{ vars.AZURE_RG }}
+    steps: *deploy
