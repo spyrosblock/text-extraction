@@ -43,7 +43,7 @@ either way.
 | `CREATE_CONTAINERS` | `false` | create the blob container on startup (local dev) |
 
 Role assignment for the function app identity: **Storage Blob Data Reader** on the `text-storage`
-container.
+container ([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)).
 
 ## Local development
 
@@ -68,6 +68,5 @@ go test -tags integration -run Integration .      # against Azurite
 
 ## Deploy
 
-```sh
-func azure functionapp publish <APP_NAME>
-```
+Deployed by the `staging` and `prod` GitHub Actions workflows (target `functions` or `all`), with the
+app and its settings defined in [`infra/`](../infra). See [Deployment](../README.md#deployment).

@@ -49,8 +49,10 @@ queue's 5 minute lock. If a renewal fails, processing stops and the message is a
 | `MAX_MESSAGES` | `0` | stop after N messages; `0` = no limit |
 | `CREATE_CONTAINERS` | `false` | create blob containers on startup (local dev) |
 
-Role assignments for the job's identity: **Storage Blob Data Contributor** on the storage account
-and **Azure Service Bus Data Receiver** on the queue.
+Role assignments for the job's identity: **Storage Blob Data Contributor** on the data storage
+account, and **Azure Service Bus Data Receiver** plus **Azure Service Bus Data Owner** on the queue
+([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)). The KEDA scaler reads the queue
+length, which needs Data Owner.
 
 ## Local development
 
@@ -82,33 +84,11 @@ docker run --rm --network host -v "$PWD":/src -w /src golang:1.26-trixie sh -c \
 
 ## Deploy
 
-```sh
-RG=<rg> ENV=<container-apps-env> ACR=<registry> IDENTITY=<user-assigned-identity>
-SB=<servicebus-namespace> ACCOUNT=<storage-account>
+The job is defined in [`infra/modules/ocr-job.bicep`](../infra/modules/ocr-job.bicep). The
+`staging` workflow (target `ocr` or `all`) builds the image, pushes it to
+`ghcr.io/spyrosblock/ocr-container:<commit sha>` and points the job at it; `prod` deploys the same
+tag. See [Deployment](../README.md#deployment).
 
-az acr build -r $ACR -t ocr-container:latest .
-
-IDENTITY_ID=$(az identity show -g $RG -n $IDENTITY --query id -o tsv)
-CLIENT_ID=$(az identity show -g $RG -n $IDENTITY --query clientId -o tsv)
-
-az containerapp job create -g $RG -n ocr-container --environment $ENV \
-  --trigger-type Event \
-  --replica-timeout 3600 --replica-retry-limit 0 \
-  --parallelism 1 --replica-completion-count 1 \
-  --min-executions 0 --max-executions 10 --polling-interval 30 \
-  --image $ACR.azurecr.io/ocr-container:latest \
-  --registry-server $ACR.azurecr.io --registry-identity $IDENTITY_ID \
-  --mi-user-assigned $IDENTITY_ID \
-  --cpu 2 --memory 4Gi \
-  --env-vars AZURE_CLIENT_ID=$CLIENT_ID \
-             STORAGE_ACCOUNT_URL=https://$ACCOUNT.blob.core.windows.net \
-             SERVICEBUS_NAMESPACE=$SB.servicebus.windows.net \
-  --scale-rule-name pdf-queue --scale-rule-type azure-servicebus \
-  --scale-rule-metadata queueName=pdf_queue namespace=$SB messageCount=1 \
-  --scale-rule-identity $IDENTITY_ID
-```
-
-The KEDA scaler reads the queue length, so the identity also needs
-**Azure Service Bus Data Owner** on the namespace (or the queue). `--replica-retry-limit 0`
-because Service Bus already retries failed messages. Keep `--replica-timeout` above the time the
-largest PDF takes; an execution handles several messages before it goes idle.
+The replica retry limit is 0 because Service Bus already retries failed messages. Keep the replica
+timeout (3600 s) above the time the largest PDF takes; an execution handles several messages before
+it goes idle.

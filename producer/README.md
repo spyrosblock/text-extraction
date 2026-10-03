@@ -27,8 +27,9 @@ Errors: `400` (not a PDF / bad multipart), `413` (>90MB), `415` (content type), 
 | `PDFIUM_WORKERS` | CPU count | concurrent PDFium instances |
 | `CREATE_CONTAINERS` | `false` | create blob containers on startup (local dev) |
 
-Role assignments for the function app identity: **Storage Blob Data Contributor** on the storage account
-and **Azure Service Bus Data Sender** on the queue.
+Role assignments for the function app identity: **Storage Blob Data Contributor** on the data storage
+account and **Azure Service Bus Data Sender** on the queue
+([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)).
 
 Blob container names can't contain underscores, so `pdf_storage`/`text_storage` from the spec
 become `pdf-storage`/`text-storage`.
@@ -55,6 +56,7 @@ go test -tags integration -run Integration .      # against the emulators
 
 ## Deploy
 
-```sh
-func azure functionapp publish <APP_NAME>
-```
+Deployed by the `staging` and `prod` GitHub Actions workflows (target `functions` or `all`), with the
+app and its settings defined in [`infra/`](../infra). See [Deployment](../README.md#deployment).
+
+In Azure the endpoint uses function auth: send the app's function key in `x-functions-key`.
