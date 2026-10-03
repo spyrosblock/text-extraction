@@ -179,4 +179,28 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - run: infra/smoke.sh "${{ vars.AZURE_RG }}"
+      # Until both apps and the OCR image have been deployed once (e.g. an
+      # infra-only first run), there's nothing to test.
+      - name: Check deployed
+        id: deployed
+        env:
+          RG: ${{ vars.AZURE_RG }}
+        run: |
+          outputs=$(az stack group show -g "$RG" -n text-extraction --query outputs -o json)
+          missing=()
+          for app in producer consumer; do
+            name=$(jq -r ".${app}Name.value" <<<"$outputs")
+            n=$(az functionapp function list -g "$RG" -n "$name" --query 'length(@)' -o tsv)
+            ((n > 0)) || missing+=("$app")
+          done
+          job=$(jq -r .ocrJobName.value <<<"$outputs")
+          image=$(az resource show -g "$RG" -n "$job" --resource-type Microsoft.App/jobs --query 'properties.template.containers[0].image' -o tsv)
+          [[ "$image" == ghcr.io/* ]] || missing+=(ocr)
+          if ((${#missing[@]})); then
+            echo "::notice::Skipping the smoke test: not deployed yet: ${missing[*]}. Run with target all."
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.deployed.outputs.ready == 'true'
+        run: infra/smoke.sh "${{ vars.AZURE_RG }}"
