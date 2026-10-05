@@ -26,6 +26,7 @@ reviewer). It is safe to re-run.
 | `ci` | pull request | `go vet` and `go test` for each component, Bicep lint/build, and a what-if against staging posted to the PR |
 | `staging` | manual, target `all`, `infra`, `functions` or `ocr` | Builds what the target needs (OCR image pushed to `ghcr.io/spyrosblock/ocr-container:<sha>`), deploys the stack, the OCR job image and the Function apps, then runs [`infra/smoke.sh`](infra/smoke.sh) |
 | `prod` | manual, same targets, needs approval | Same deploy for prod. The OCR image is the tag `staging` pushed for the commit, so deploy a commit to staging first |
+| `destroy` | manual, environment `staging` or `prod`, type its name to confirm (prod needs approval) | Deletes the stack and every resource it manages, then anything else left in the resource group. The resource group, Entra app and role assignments stay, so `staging`/`prod` can redeploy with target `all` |
 
 To smoke-test an environment by hand:
 

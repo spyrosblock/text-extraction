@@ -1,0 +1,76 @@
+# Deletes an environment's infrastructure: the deployment stack with every
+# resource it manages, then anything else left in the resource group (e.g.
+# the Application Insights smart detection rules Azure creates on its own).
+# The resource group, the Entra app and its role assignments stay, so
+# staging.yml / prod.yml can redeploy without re-running bootstrap.sh.
+name: destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        type: choice
+        options: [staging, prod]
+      confirm:
+        description: Type the environment name to confirm
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+# Shares the deploy workflows' groups, so it never runs alongside a deploy.
+concurrency:
+  group: ${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    if: inputs.confirm == inputs.environment
+    runs-on: ubuntu-latest
+    # prod's required reviewers approve the run.
+    environment: ${{ inputs.environment }}
+    env:
+      RG: ${{ vars.AZURE_RG }}
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Delete stack
+        run: |
+          if ! az stack group show -g "$RG" -n text-extraction --query id -o tsv >/dev/null 2>&1; then
+            echo "::notice::No text-extraction stack in $RG."
+            exit 0
+          fi
+          az stack group delete -g "$RG" -n text-extraction \
+            --action-on-unmanage deleteResources --yes
+      - name: Delete leftover resources
+        run: |
+          mapfile -t ids < <(az resource list -g "$RG" --query '[].id' -o tsv)
+          if ((${#ids[@]} == 0)); then
+            echo "$RG is empty."
+            exit 0
+          fi
+          printf '%s\n' "${ids[@]}"
+          az resource delete --ids "${ids[@]}"
+          left=$(az resource list -g "$RG" --query '[].id' -o tsv)
+          if [[ -n "$left" ]]; then
+            echo "::error::Still in $RG:"$'\n'"$left"
+            exit 1
+          fi
+
+  # A typo in confirm skips destroy; fail visibly instead.
+  not-confirmed:
+    if: inputs.confirm != inputs.environment
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CONFIRM: ${{ inputs.confirm }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          echo "::error::confirm was '$CONFIRM', expected '$ENV'. Nothing deleted."
+          exit 1
