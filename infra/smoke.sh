@@ -12,8 +12,12 @@
 #
 # Reads the app names and host names from the deployment stack's outputs and
 # the producer's function key from ARM, so az needs Contributor on the RG.
+# For a Terraform environment, pass its outputs instead (staging-tf.yml):
 #
-# Overrides: STACK, TEXT_PDF, SCANNED_PDF, TEXT_TIMEOUT, OCR_TIMEOUT (seconds).
+#   OUTPUTS=$(terraform -chdir=infra/terraform output -json) infra/smoke.sh rg-textextract-staging-tf
+#
+# Overrides: STACK, OUTPUTS, TEXT_PDF, SCANNED_PDF, TEXT_TIMEOUT, OCR_TIMEOUT
+# (seconds).
 set -euo pipefail
 
 RG=${1:?usage: $0 <resource-group>}
@@ -28,7 +32,8 @@ OCR_TIMEOUT=${OCR_TIMEOUT:-1200}
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-outputs=$(az stack group show -g "$RG" -n "$STACK" --query outputs -o json)
+# The stack's outputs and `terraform output -json` share names and shape.
+outputs=${OUTPUTS:-$(az stack group show -g "$RG" -n "$STACK" --query outputs -o json)}
 output() { jq -er ".$1.value" <<<"$outputs"; }
 producer_name=$(output producerName)
 producer_url="https://$(output producerHostName)/api/extract"

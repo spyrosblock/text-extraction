@@ -12,12 +12,18 @@
 # Safe to re-run: every step checks what already exists.
 #
 # Overrides: REPO, LOCATION, AZURE_SUBSCRIPTION_ID (defaults to the current az
-# subscription), PROD_REVIEWER (GitHub login; defaults to the gh user).
+# subscription), PROD_REVIEWER (GitHub login; defaults to the gh user),
+# TFSTATE_ACCOUNT (Terraform state storage account).
 set -euo pipefail
 
 REPO="${REPO:-spyrosblock/text-extraction}"
 LOCATION="${LOCATION:-northeurope}"
-ENVS=(staging prod)
+# GitHub environments; each gets resource group rg-textextract-<env> and Entra
+# app gh-text-extraction-<env>. The Bicep stacks deploy to staging and prod,
+# Terraform (infra/terraform) to staging-tf and prod-tf.
+ENVS=(staging prod staging-tf prod-tf)
+TF_ENVS=(staging-tf prod-tf)
+TFSTATE_RG=rg-textextract-tfstate
 
 PROVIDERS=(
   Microsoft.Storage
@@ -31,7 +37,7 @@ PROVIDERS=(
 )
 
 # The only roles the deployment identity may assign or remove. Keep in sync
-# with the `roles` map in modules/roles.bicep.
+# with the `roles` map in modules/roles.bicep and terraform/modules/roles.
 ASSIGNABLE_ROLES=(
   b7e6dc6d-f1e8-4753-8033-0f276bb0955b # Storage Blob Data Owner
   ba92f5b4-2d11-453d-a403-e96b0029c9fe # Storage Blob Data Contributor
@@ -43,6 +49,7 @@ ASSIGNABLE_ROLES=(
 )
 
 CONTRIBUTOR=b24988ac-6180-42a0-ab88-20f7382dd24c
+BLOB_DATA_CONTRIBUTOR=ba92f5b4-2d11-453d-a403-e96b0029c9fe
 RBAC_ADMIN=f58310d9-a9f6-439a-9e8d-f62e7b41a168
 OIDC_ISSUER=https://token.actions.githubusercontent.com
 
@@ -53,6 +60,8 @@ if [[ -n "${AZURE_SUBSCRIPTION_ID:-}" ]]; then
 fi
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
+# Storage account names are global; derive a stable one per subscription.
+TFSTATE_ACCOUNT=${TFSTATE_ACCOUNT:-sttxtfstate$(printf %s "$SUBSCRIPTION_ID" | sha256sum | cut -c1-8)}
 gh repo view "$REPO" --json name >/dev/null
 
 # Subject prefix of the repo's OIDC tokens. Newer repos use immutable ids
@@ -61,7 +70,8 @@ SUB_PREFIX=$(gh api "repos/$REPO/actions/oidc/customization/sub" --jq ".sub_clai
 
 # Role Based Access Control Administrator, limited to writing assignments of
 # ASSIGNABLE_ROLES to service principals and deleting assignments of those
-# roles (a deployment stack deletes assignments removed from Bicep).
+# roles (a deployment stack or terraform deletes assignments removed from the
+# code).
 roles_csv=$(printf '%s, ' "${ASSIGNABLE_ROLES[@]}")
 roles_csv=${roles_csv%, }
 RBAC_CONDITION="((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR (@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roles_csv} AND @Request[Microsoft.Authorization/roleAssignments:PrincipalType] ForAnyOfAnyValues:StringEqualsIgnoreCase {'ServicePrincipal'})) AND ((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR (@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$roles_csv}))"
@@ -120,6 +130,7 @@ ensure_federated_credential() { # appId, credential name, subject
 }
 
 ensure_role() { # principal object id, role definition id, scope, [condition]
+  # PRINCIPAL_TYPE overrides the principal type (ServicePrincipal).
   local sp_id=$1 role=$2 scope=$3 condition=${4:-} existing
   existing=$(az role assignment list --assignee "$sp_id" --role "$role" --scope "$scope" \
     --query "[?scope=='$scope'] | [0].{id: id, condition: condition}" -o json)
@@ -131,7 +142,7 @@ ensure_role() { # principal object id, role definition id, scope, [condition]
     echo "role $role: condition changed, re-assigning"
     az role assignment delete --ids "$(jq -r .id <<<"$existing")"
   fi
-  local args=(--assignee-object-id "$sp_id" --assignee-principal-type ServicePrincipal
+  local args=(--assignee-object-id "$sp_id" --assignee-principal-type "${PRINCIPAL_TYPE:-ServicePrincipal}"
     --role "$role" --scope "$scope")
   if [[ -n "$condition" ]]; then
     args+=(--condition "$condition" --condition-version 2.0)
@@ -142,7 +153,7 @@ ensure_role() { # principal object id, role definition id, scope, [condition]
 
 # --- 2-4. Resource groups, Entra apps, role assignments ----------------------
 
-declare -A CLIENT_IDS
+declare -A CLIENT_IDS SP_IDS
 for env in "${ENVS[@]}"; do
   rg="rg-textextract-$env"
 
@@ -153,9 +164,11 @@ for env in "${ENVS[@]}"; do
   app_id=$(ensure_app "gh-text-extraction-$env")
   sp_id=$(ensure_sp "$app_id")
   CLIENT_IDS[$env]=$app_id
+  SP_IDS[$env]=$sp_id
   ensure_federated_credential "$app_id" "github-env-$env" "$SUB_PREFIX:environment:$env"
-  if [[ "$env" == staging ]]; then
-    # PR jobs run without an environment; ci.yml uses this for what-if.
+  if [[ "$env" == staging || "$env" == staging-tf ]]; then
+    # PR jobs run without an environment; ci.yml uses these for the what-if
+    # and the terraform plan.
     ensure_federated_credential "$app_id" github-pull-request "$SUB_PREFIX:pull_request"
   fi
 
@@ -164,14 +177,40 @@ for env in "${ENVS[@]}"; do
   ensure_role "$sp_id" "$RBAC_ADMIN" "$rg_id" "$RBAC_CONDITION"
 done
 
-# --- 5. GitHub environments and variables ----------------------------------
+# --- 5. Terraform state ------------------------------------------------------
+
+# One account, a container per Terraform environment. Each deployment
+# identity can only write its own container. Entra auth only, with blob
+# versioning to recover an overwritten state.
+log "Terraform state: $TFSTATE_ACCOUNT in $TFSTATE_RG"
+az group create -n "$TFSTATE_RG" -l "$LOCATION" --tags app=text-extraction >/dev/null
+if ! state_id=$(az storage account show -g "$TFSTATE_RG" -n "$TFSTATE_ACCOUNT" --query id -o tsv 2>/dev/null); then
+  state_id=$(az storage account create -g "$TFSTATE_RG" -n "$TFSTATE_ACCOUNT" -l "$LOCATION" \
+    --sku Standard_LRS --kind StorageV2 --min-tls-version TLS1_2 \
+    --allow-blob-public-access false --allow-shared-key-access false \
+    --tags app=text-extraction --query id -o tsv)
+  echo "created storage account $TFSTATE_ACCOUNT"
+fi
+az storage account blob-service-properties update -g "$TFSTATE_RG" --account-name "$TFSTATE_ACCOUNT" \
+  --enable-versioning true --enable-delete-retention true --delete-retention-days 7 >/dev/null
+for env in "${TF_ENVS[@]}"; do
+  az storage container-rm create -g "$TFSTATE_RG" --storage-account "$TFSTATE_ACCOUNT" -n "$env" >/dev/null
+  echo "container $env"
+  ensure_role "${SP_IDS[$env]}" "$BLOB_DATA_CONTRIBUTOR" "$state_id/blobServices/default/containers/$env"
+done
+# Owner has no data access; let whoever runs this run terraform by hand.
+if user_id=$(az ad signed-in-user show --query id -o tsv 2>/dev/null); then
+  PRINCIPAL_TYPE=User ensure_role "$user_id" "$BLOB_DATA_CONTRIBUTOR" "$state_id"
+fi
+
+# --- 6. GitHub environments and variables ----------------------------------
 
 reviewer_login="${PROD_REVIEWER:-$(gh api user --jq .login)}"
 reviewer_id=$(gh api "users/$reviewer_login" --jq .id)
 
 for env in "${ENVS[@]}"; do
   log "[$env] GitHub environment"
-  if [[ "$env" == prod ]]; then
+  if [[ "$env" == prod* ]]; then
     jq -n --argjson id "$reviewer_id" '{reviewers: [{type: "User", id: $id}]}' |
       gh api -X PUT "repos/$REPO/environments/$env" --input - >/dev/null
     echo "required reviewer: $reviewer_login"
@@ -185,15 +224,20 @@ for env in "${ENVS[@]}"; do
   gh variable set AZURE_RG --env "$env" -R "$REPO" --body "rg-textextract-$env"
 done
 
-# Jobs without an environment (the PR what-if in ci.yml) only see repo-level
-# variables. Point those at staging; environment variables override them.
-log "Repository variables (staging, for PR what-if)"
+# Jobs without an environment (the PR what-if and plan in ci.yml) only see
+# repo-level variables. Point those at staging (TF_* at staging-tf);
+# environment variables override them.
+log "Repository variables (staging, for PR what-if and plan)"
 gh variable set AZURE_CLIENT_ID -R "$REPO" --body "${CLIENT_IDS[staging]}"
 gh variable set AZURE_TENANT_ID -R "$REPO" --body "$TENANT_ID"
 gh variable set AZURE_SUBSCRIPTION_ID -R "$REPO" --body "$SUBSCRIPTION_ID"
 gh variable set AZURE_RG -R "$REPO" --body rg-textextract-staging
+gh variable set TF_AZURE_CLIENT_ID -R "$REPO" --body "${CLIENT_IDS[staging-tf]}"
+gh variable set TF_AZURE_RG -R "$REPO" --body rg-textextract-staging-tf
+gh variable set TFSTATE_STORAGE_ACCOUNT -R "$REPO" --body "$TFSTATE_ACCOUNT"
 
 log "Done"
 for env in "${ENVS[@]}"; do
   echo "$env: AZURE_CLIENT_ID=${CLIENT_IDS[$env]} AZURE_RG=rg-textextract-$env"
 done
+echo "Terraform state: $TFSTATE_ACCOUNT (containers ${TF_ENVS[*]})"
