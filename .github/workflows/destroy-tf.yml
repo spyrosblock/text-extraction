@@ -1,0 +1,90 @@
+# destroy.yml for the Terraform environments: terraform destroy, then
+# anything else left in the resource group (e.g. the Application Insights
+# smart detection rules Azure creates on its own). The resource group, the
+# Entra app, its role assignments and the (now empty) state stay, so
+# staging-tf.yml / prod-tf.yml can redeploy without re-running bootstrap.sh.
+name: destroy-tf
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        type: choice
+        options: [staging-tf, prod-tf]
+      confirm:
+        description: Type the environment name to confirm
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+# Shares the deploy workflows' groups, so it never runs alongside a deploy.
+concurrency:
+  group: ${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.16.5
+
+jobs:
+  destroy:
+    if: inputs.confirm == inputs.environment
+    runs-on: ubuntu-latest
+    # prod-tf's required reviewers approve the run.
+    environment: ${{ inputs.environment }}
+    env:
+      RG: ${{ vars.AZURE_RG }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Terraform destroy
+        env:
+          TF_ENV: ${{ inputs.environment }}
+        run: |
+          terraform -chdir=infra/terraform init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=$TF_ENV"
+          terraform -chdir=infra/terraform destroy -var-file="${TF_ENV%-tf}.tfvars" -auto-approve
+      - name: Delete leftover resources
+        run: |
+          mapfile -t ids < <(az resource list -g "$RG" --query '[].id' -o tsv)
+          if ((${#ids[@]} == 0)); then
+            echo "$RG is empty."
+            exit 0
+          fi
+          printf '%s\n' "${ids[@]}"
+          az resource delete --ids "${ids[@]}"
+          left=$(az resource list -g "$RG" --query '[].id' -o tsv)
+          if [[ -n "$left" ]]; then
+            echo "::error::Still in $RG:"$'\n'"$left"
+            exit 1
+          fi
+
+  # A typo in confirm skips destroy; fail visibly instead.
+  not-confirmed:
+    if: inputs.confirm != inputs.environment
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          CONFIRM: ${{ inputs.confirm }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          echo "::error::confirm was '$CONFIRM', expected '$ENV'. Nothing deleted."
+          exit 1

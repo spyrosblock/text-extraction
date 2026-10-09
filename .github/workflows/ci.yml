@@ -1,5 +1,6 @@
 # Pull request checks: Go vet/tests for the three components, Bicep
-# lint/build, and a what-if against staging posted to the PR.
+# lint/build and Terraform fmt/validate, and a what-if against staging and a
+# terraform plan against staging-tf, each posted to the PR.
 name: ci
 
 on:
@@ -11,6 +12,9 @@ permissions:
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+env:
+  TF_VERSION: 1.16.5
 
 jobs:
   go:
@@ -94,4 +98,82 @@ jobs:
             echo '```'
           } >comment.md
           cat comment.md >>"$GITHUB_STEP_SUMMARY"
-          gh pr comment "$PR" --edit-last --create-if-none --body-file comment.md
+          .github/scripts/pr-comment.sh "$PR" '<!-- ci:bicep-what-if -->' comment.md
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive -diff
+      - run: terraform init -backend=false
+      - run: terraform validate
+
+  plan:
+    needs: terraform
+    # Fork PRs get no OIDC token for this repo.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    # No environment: the staging-tf app's pull_request federated credential
+    # and the repo-level TF_* variables apply.
+    env:
+      RG: ${{ vars.TF_AZURE_RG }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.TF_AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.TF_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Plan
+        run: |
+          # Compare against the image the job runs now, as staging-tf.yml deploys it.
+          image=$(az resource show -g "$RG" -n caj-ocr-staging --resource-type Microsoft.App/jobs \
+            --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
+          if [[ -n "$image" ]]; then
+            export TF_VAR_ocr_image=$image
+          fi
+          cd infra/terraform
+          terraform init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=staging-tf"
+          # Read-only: don't hold the state lock a deploy may need.
+          terraform plan -lock=false -var-file=staging.tfvars -out=tfplan
+          terraform show -no-color tfplan >"$GITHUB_WORKSPACE/plan.txt"
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          {
+            echo "### Terraform plan (staging-tf)"
+            echo
+            echo "Commit ${{ github.event.pull_request.head.sha }}."
+            echo
+            echo '```diff'
+            # Stay under the 64 KB comment limit.
+            head -c 60000 plan.txt
+            echo '```'
+          } >comment.md
+          cat comment.md >>"$GITHUB_STEP_SUMMARY"
+          .github/scripts/pr-comment.sh "$PR" '<!-- ci:terraform-plan -->' comment.md

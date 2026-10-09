@@ -1,0 +1,220 @@
+# staging.yml with the infrastructure from Terraform (infra/terraform) instead
+# of the Bicep stack, in the staging-tf environment (rg-textextract-staging-tf).
+# Deploys the infra, the Function apps and/or the OCR image, then smoke-tests
+# the environment. prod-tf.yml promotes the same commit.
+name: staging-tf
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to deploy
+        type: choice
+        options: [all, infra, functions, ocr]
+        default: all
+
+permissions:
+  contents: read
+  id-token: write
+
+# One staging-tf deployment at a time.
+concurrency:
+  group: staging-tf
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.16.5
+
+jobs:
+  build-functions:
+    if: inputs.target == 'all' || inputs.target == 'functions'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [producer, consumer]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ matrix.app }}/go.mod
+          cache-dependency-path: ${{ matrix.app }}/go.sum
+      - run: npm install -g azure-functions-core-tools@4
+      # Builds bin/app for linux/amd64 and zips it with host.json, the layout
+      # the Flex Go runtime expects.
+      - name: Package
+        run: func pack -o dist
+        env:
+          FUNCTIONS_WORKER_RUNTIME: native
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.app }}
+          path: ${{ matrix.app }}/dist/${{ matrix.app }}.zip
+          if-no-files-found: error
+
+  # Pushes ghcr.io/<owner>/ocr-container:<sha>, the same tag staging.yml
+  # pushes; prod-tf.yml deploys that tag.
+  build-ocr:
+    if: inputs.target == 'all' || inputs.target == 'ocr'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Image ref
+        id: image
+        # ghcr.io needs a lowercase owner.
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ocr-container:$GITHUB_SHA" >>"$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: ocr_container
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Infra first, so the OCR and function deploys find the resources.
+  deploy:
+    needs: [build-functions, build-ocr]
+    # Run when the builds this target doesn't need were skipped.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: staging-tf
+    outputs:
+      tf-outputs: ${{ steps.outputs.outputs.json }}
+    env:
+      ENV: staging
+      RG: ${{ vars.AZURE_RG }}
+      INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
+      FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' }}
+      OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' }}
+      # Terraform signs in with the job's OIDC token, for the providers and
+      # the state backend alike.
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Every target reads the state's outputs.
+      - name: Terraform init
+        run: |
+          terraform -chdir=infra/terraform init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=staging-tf"
+
+      # --- infra
+      # The image comes from the OCR deploy; keep the one the job runs now.
+      # ocr_image falls back to the quickstart image.
+      - name: Current OCR image
+        if: env.INFRA == 'true'
+        run: |
+          image=$(az resource show -g "$RG" -n "caj-ocr-$ENV" --resource-type Microsoft.App/jobs \
+            --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
+          echo "OCR image: ${image:-none yet, using the quickstart image}"
+          if [[ -n "$image" ]]; then
+            echo "TF_VAR_ocr_image=$image" >>"$GITHUB_ENV"
+          fi
+      - name: Plan
+        if: env.INFRA == 'true'
+        run: terraform -chdir=infra/terraform plan -var-file="$ENV.tfvars" -out=tfplan
+      - name: Apply
+        if: env.INFRA == 'true'
+        run: terraform -chdir=infra/terraform apply tfplan
+      - name: Outputs
+        id: outputs
+        run: echo "json=$(terraform -chdir=infra/terraform output -json | jq -c .)" >>"$GITHUB_OUTPUT"
+
+      # --- ocr
+      # Later infra deploys read the image back from the job and keep it.
+      - name: Update OCR job image
+        if: env.OCR == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
+        run: |
+          az extension add -n containerapp --upgrade --yes
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ocr-container:$GITHUB_SHA"
+          job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
+          az containerapp job update -g "$RG" -n "$job" --image "$image" \
+            --query 'properties.template.containers[0].image' -o tsv
+
+      # --- functions
+      - uses: actions/download-artifact@v8
+        if: env.FUNCTIONS == 'true'
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: Azure/functions-action@v1
+        if: env.FUNCTIONS == 'true'
+        with:
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).producerName.value }}
+          package: dist/producer.zip
+          sku: flexconsumption
+      - uses: Azure/functions-action@v1
+        if: env.FUNCTIONS == 'true'
+        with:
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).consumerName.value }}
+          package: dist/consumer.zip
+          sku: flexconsumption
+
+  smoke:
+    needs: deploy
+    # deploy's skipped builds would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: staging-tf
+    timeout-minutes: 30
+    env:
+      RG: ${{ vars.AZURE_RG }}
+      # smoke.sh reads these instead of the Bicep stack's outputs.
+      OUTPUTS: ${{ needs.deploy.outputs.tf-outputs }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Until both apps and the OCR image have been deployed once (e.g. an
+      # infra-only first run), there's nothing to test.
+      - name: Check deployed
+        id: deployed
+        run: |
+          missing=()
+          for app in producer consumer; do
+            name=$(jq -r ".${app}Name.value" <<<"$OUTPUTS")
+            n=$(az functionapp function list -g "$RG" -n "$name" --query 'length(@)' -o tsv)
+            ((n > 0)) || missing+=("$app")
+          done
+          job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
+          image=$(az resource show -g "$RG" -n "$job" --resource-type Microsoft.App/jobs --query 'properties.template.containers[0].image' -o tsv)
+          [[ "$image" == ghcr.io/* ]] || missing+=(ocr)
+          if ((${#missing[@]})); then
+            echo "::notice::Skipping the smoke test: not deployed yet: ${missing[*]}. Run with target all."
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.deployed.outputs.ready == 'true'
+        run: infra/smoke.sh "$RG"
