@@ -1,6 +1,5 @@
-# Pull request checks: Go vet/tests for the three components, Bicep
-# lint/build and Terraform fmt/validate, and a what-if against staging and a
-# terraform plan against staging-tf, each posted to the PR.
+# Pull request checks: Go vet/tests for the three components, Terraform
+# fmt/validate, and a terraform plan against staging posted to the PR.
 name: ci
 
 on:
@@ -41,70 +40,11 @@ jobs:
       - run: go vet -tags integration ./...
       - run: go test ./...
 
-  bicep:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - run: az bicep install
-      - run: az bicep lint --file infra/main.bicep
-      - run: az bicep build --file infra/main.bicep --stdout >/dev/null
-      - run: |
-          for p in infra/main.*.bicepparam; do
-            az bicep build-params --file "$p" --stdout >/dev/null
-          done
-
-  what-if:
-    needs: bicep
-    # Fork PRs get no OIDC token for this repo.
-    if: github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-    # No environment: the staging app's pull_request federated credential and
-    # the repo-level variables (staging values) apply.
-    env:
-      RG: ${{ vars.AZURE_RG }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: azure/login@v3
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: What-if
-        run: |
-          # Compare against the image the job runs now, as staging.yml deploys it.
-          OCR_IMAGE=$(az resource show -g "$RG" -n caj-ocr-staging --resource-type Microsoft.App/jobs \
-            --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
-          export OCR_IMAGE=${OCR_IMAGE:-mcr.microsoft.com/k8se/quickstart-jobs:latest}
-          az deployment group what-if -g "$RG" \
-            -f infra/main.bicep -p infra/main.staging.bicepparam \
-            --exclude-change-types Ignore NoChange | tee what-if.txt
-      - name: Comment on PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          {
-            echo "### Bicep what-if (staging)"
-            echo
-            echo "Commit ${{ github.event.pull_request.head.sha }}. Runs as a plain deployment, so resources the stack would delete aren't listed."
-            echo
-            echo '```diff'
-            # Strip colours; stay under the 64 KB comment limit.
-            sed 's/\x1b\[[0-9;]*m//g' what-if.txt | head -c 60000
-            echo '```'
-          } >comment.md
-          cat comment.md >>"$GITHUB_STEP_SUMMARY"
-          .github/scripts/pr-comment.sh "$PR" '<!-- ci:bicep-what-if -->' comment.md
-
   terraform:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: infra/terraform
+        working-directory: infra
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
@@ -124,12 +64,12 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
-    # No environment: the staging-tf app's pull_request federated credential
-    # and the repo-level TF_* variables apply.
+    # No environment: the staging app's pull_request federated credential and
+    # the repo-level variables (staging values) apply.
     env:
-      RG: ${{ vars.TF_AZURE_RG }}
+      RG: ${{ vars.AZURE_RG }}
       ARM_USE_OIDC: true
-      ARM_CLIENT_ID: ${{ vars.TF_AZURE_CLIENT_ID }}
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       TF_IN_AUTOMATION: true
@@ -142,21 +82,21 @@ jobs:
           terraform_wrapper: false
       - uses: azure/login@v3
         with:
-          client-id: ${{ vars.TF_AZURE_CLIENT_ID }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Plan
         run: |
-          # Compare against the image the job runs now, as staging-tf.yml deploys it.
+          # Compare against the image the job runs now, as staging.yml deploys it.
           image=$(az resource show -g "$RG" -n caj-ocr-staging --resource-type Microsoft.App/jobs \
             --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
           if [[ -n "$image" ]]; then
             export TF_VAR_ocr_image=$image
           fi
-          cd infra/terraform
+          cd infra
           terraform init \
             -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=staging-tf"
+            -backend-config="container_name=staging"
           # Read-only: don't hold the state lock a deploy may need.
           terraform plan -lock=false -var-file=staging.tfvars -out=tfplan
           terraform show -no-color tfplan >"$GITHUB_WORKSPACE/plan.txt"
@@ -166,7 +106,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           {
-            echo "### Terraform plan (staging-tf)"
+            echo "### Terraform plan (staging)"
             echo
             echo "Commit ${{ github.event.pull_request.head.sha }}."
             echo

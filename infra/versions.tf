@@ -1,7 +1,7 @@
 # State lives in the bootstrap's state account (bootstrap.sh), one container
 # per environment, Entra auth only. The workflows pass the rest:
 #   terraform init -backend-config=storage_account_name=<account> \
-#     -backend-config=container_name=<staging-tf|prod-tf>
+#     -backend-config=container_name=<staging|prod>
 terraform {
   required_version = ">= 1.16"
 

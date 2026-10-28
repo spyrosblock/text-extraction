@@ -1,5 +1,4 @@
-# Named like main.bicep's outputs, so smoke.sh and the workflows read
-# `terraform output -json` the same way as the stack's outputs.
+# smoke.sh and the workflows read these from `terraform output -json`.
 output "producerName" {
   value = module.producer.name
 }

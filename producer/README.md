@@ -29,7 +29,7 @@ Errors: `400` (not a PDF / bad multipart), `413` (>90MB or >200 pages), `415` (c
 
 Role assignments for the function app identity: **Storage Blob Data Contributor** on the data storage
 account and **Azure Service Bus Data Sender** on the queue
-([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)).
+([`infra/modules/roles`](../infra/modules/roles/main.tf)).
 
 Blob container names can't contain underscores, so `pdf_storage`/`text_storage` from the spec
 become `pdf-storage`/`text-storage`.

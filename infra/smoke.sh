@@ -3,6 +3,7 @@
 # staging.yml; also run by hand:
 #
 #   az login
+#   terraform -chdir=infra init -backend-config=... # for staging
 #   infra/smoke.sh rg-textextract-staging
 #
 # 1. POSTs a PDF with a text layer to the producer: expects "completed", then
@@ -10,18 +11,15 @@
 # 2. POSTs a scanned PDF: expects "queued", then the OCR job's text from the
 #    consumer. Needs the OCR image deployed (target ocr), not the quickstart one.
 #
-# Reads the app names and host names from the deployment stack's outputs and
-# the producer's function key from ARM, so az needs Contributor on the RG.
-# For a Terraform environment, pass its outputs instead (staging-tf.yml):
+# Reads the app names and host names from `terraform output -json` in
+# infra/ (or from OUTPUTS, as staging.yml passes them), and the
+# producer's function key from ARM, so az needs Contributor on the RG.
 #
-#   OUTPUTS=$(terraform -chdir=infra/terraform output -json) infra/smoke.sh rg-textextract-staging-tf
-#
-# Overrides: STACK, OUTPUTS, TEXT_PDF, SCANNED_PDF, TEXT_TIMEOUT, OCR_TIMEOUT
+# Overrides: OUTPUTS, TEXT_PDF, SCANNED_PDF, TEXT_TIMEOUT, OCR_TIMEOUT
 # (seconds).
 set -euo pipefail
 
 RG=${1:?usage: $0 <resource-group>}
-STACK=${STACK:-text-extraction}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEXT_PDF=${TEXT_PDF:-$ROOT/test1.pdf}
 SCANNED_PDF=${SCANNED_PDF:-$ROOT/test2.pdf}
@@ -32,8 +30,7 @@ OCR_TIMEOUT=${OCR_TIMEOUT:-1200}
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
-# The stack's outputs and `terraform output -json` share names and shape.
-outputs=${OUTPUTS:-$(az stack group show -g "$RG" -n "$STACK" --query outputs -o json)}
+outputs=${OUTPUTS:-$(terraform -chdir="$ROOT/infra" output -json)}
 output() { jq -er ".$1.value" <<<"$outputs"; }
 producer_name=$(output producerName)
 producer_url="https://$(output producerHostName)/api/extract"

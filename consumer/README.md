@@ -26,7 +26,7 @@ an id can read its text for a day.
 
 Text is kept for one day. A blob lifecycle rule on the data account deletes it; it is deployed
 with the rest of the infrastructure
-([`infra/modules/storage-data.bicep`](../infra/modules/storage-data.bicep)).
+([`infra/modules/storage-data`](../infra/modules/storage-data/main.tf)).
 
 Lifecycle policies run about once a day, so a blob can outlive its day by up to ~24h. The
 consumer returns `404` for any blob last modified more than 24h ago, so the limit holds
@@ -43,7 +43,7 @@ either way.
 | `CREATE_CONTAINERS` | `false` | create the blob container on startup (local dev) |
 
 Role assignment for the function app identity: **Storage Blob Data Reader** on the `text-storage`
-container ([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)).
+container ([`infra/modules/roles`](../infra/modules/roles/main.tf)).
 
 ## Local development
 

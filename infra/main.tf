@@ -1,6 +1,5 @@
-# text-extraction: one environment (staging or prod) in one resource group,
-# the Terraform twin of ../main.bicep. Deployed by staging-tf.yml and
-# prod-tf.yml into rg-textextract-<env>-tf:
+# text-extraction: one environment (staging or prod) in one resource group.
+# Deployed by staging.yml and prod.yml into rg-textextract-<env>:
 #   terraform plan -var-file=<env>.tfvars -out tfplan && terraform apply tfplan
 data "azurerm_resource_group" "this" {
   name = var.resource_group_name

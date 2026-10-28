@@ -1,5 +1,6 @@
-# Deploys the infra stack, the Function apps and/or the OCR image to staging,
-# then smoke-tests the environment. prod.yml promotes the same commit.
+# Deploys the infrastructure (Terraform, infra/), the Function apps
+# and/or the OCR image to staging (rg-textextract-staging), then smoke-tests
+# the environment. prod.yml promotes the same commit.
 name: staging
 
 on:
@@ -19,6 +20,9 @@ permissions:
 concurrency:
   group: staging
   cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.16.5
 
 jobs:
   build-functions:
@@ -77,31 +81,50 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # Infra first, so the OCR and function deploys find the stack's resources.
+  # Infra first, so the OCR and function deploys find the resources.
   deploy:
     needs: [build-functions, build-ocr]
     # Run when the builds this target doesn't need were skipped.
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     environment: staging
+    outputs:
+      tf-outputs: ${{ steps.outputs.outputs.json }}
     env:
       ENV: staging
       RG: ${{ vars.AZURE_RG }}
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
       FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' }}
       OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' }}
+      # Terraform signs in with the job's OIDC token, for the providers and
+      # the state backend alike.
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
     steps:
       - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
       - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Every target reads the state's outputs.
+      - name: Terraform init
+        run: |
+          terraform -chdir=infra init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=staging"
 
       # --- infra
       # The image comes from the OCR deploy; keep the one the job runs now.
-      # The bicepparam files read OCR_IMAGE and fall back to the quickstart
-      # image.
+      # ocr_image falls back to the quickstart image.
       - name: Current OCR image
         if: env.INFRA == 'true'
         run: |
@@ -109,31 +132,28 @@ jobs:
             --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
           echo "OCR image: ${image:-none yet, using the quickstart image}"
           if [[ -n "$image" ]]; then
-            echo "OCR_IMAGE=$image" >>"$GITHUB_ENV"
+            echo "TF_VAR_ocr_image=$image" >>"$GITHUB_ENV"
           fi
-      - name: What-if
+      - name: Plan
         if: env.INFRA == 'true'
-        run: |
-          az deployment group what-if -g "$RG" \
-            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
-            --exclude-change-types Ignore NoChange
-      - name: Deploy stack
+        run: terraform -chdir=infra plan -var-file="$ENV.tfvars" -out=tfplan
+      - name: Apply
         if: env.INFRA == 'true'
-        run: |
-          az stack group create -g "$RG" -n text-extraction \
-            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
-            --deny-settings-mode none --action-on-unmanage deleteResources \
-            --description "text-extraction $ENV, ${{ github.sha }}" \
-            --yes --query outputs -o json
+        run: terraform -chdir=infra apply tfplan
+      - name: Outputs
+        id: outputs
+        run: echo "json=$(terraform -chdir=infra output -json | jq -c .)" >>"$GITHUB_OUTPUT"
 
       # --- ocr
-      # Later stack deploys read the image back from the job and keep it.
+      # Later infra deploys read the image back from the job and keep it.
       - name: Update OCR job image
         if: env.OCR == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
         run: |
           az extension add -n containerapp --upgrade --yes
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ocr-container:$GITHUB_SHA"
-          job=$(az stack group show -g "$RG" -n text-extraction --query outputs.ocrJobName.value -o tsv)
+          job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
           az containerapp job update -g "$RG" -n "$job" --image "$image" \
             --query 'properties.template.containers[0].image' -o tsv
 
@@ -143,25 +163,16 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Function app names
-        if: env.FUNCTIONS == 'true'
-        id: apps
-        run: |
-          for app in producer consumer; do
-            name=$(az stack group show -g "$RG" -n text-extraction \
-              --query "outputs.${app}Name.value" -o tsv)
-            echo "$app=$name" >>"$GITHUB_OUTPUT"
-          done
       - uses: Azure/functions-action@v1
         if: env.FUNCTIONS == 'true'
         with:
-          app-name: ${{ steps.apps.outputs.producer }}
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).producerName.value }}
           package: dist/producer.zip
           sku: flexconsumption
       - uses: Azure/functions-action@v1
         if: env.FUNCTIONS == 'true'
         with:
-          app-name: ${{ steps.apps.outputs.consumer }}
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).consumerName.value }}
           package: dist/consumer.zip
           sku: flexconsumption
 
@@ -172,6 +183,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 30
+    env:
+      RG: ${{ vars.AZURE_RG }}
+      # smoke.sh reads the app names and host names from these.
+      OUTPUTS: ${{ needs.deploy.outputs.tf-outputs }}
     steps:
       - uses: actions/checkout@v7
       - uses: azure/login@v3
@@ -183,17 +198,14 @@ jobs:
       # infra-only first run), there's nothing to test.
       - name: Check deployed
         id: deployed
-        env:
-          RG: ${{ vars.AZURE_RG }}
         run: |
-          outputs=$(az stack group show -g "$RG" -n text-extraction --query outputs -o json)
           missing=()
           for app in producer consumer; do
-            name=$(jq -r ".${app}Name.value" <<<"$outputs")
+            name=$(jq -r ".${app}Name.value" <<<"$OUTPUTS")
             n=$(az functionapp function list -g "$RG" -n "$name" --query 'length(@)' -o tsv)
             ((n > 0)) || missing+=("$app")
           done
-          job=$(jq -r .ocrJobName.value <<<"$outputs")
+          job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
           image=$(az resource show -g "$RG" -n "$job" --resource-type Microsoft.App/jobs --query 'properties.template.containers[0].image' -o tsv)
           [[ "$image" == ghcr.io/* ]] || missing+=(ocr)
           if ((${#missing[@]})); then
@@ -203,4 +215,4 @@ jobs:
             echo "ready=true" >>"$GITHUB_OUTPUT"
           fi
       - if: steps.deployed.outputs.ready == 'true'
-        run: infra/smoke.sh "${{ vars.AZURE_RG }}"
+        run: infra/smoke.sh "$RG"

@@ -1,6 +1,6 @@
 # A Flex Consumption plan and app running the native Go worker, with
 # identity-based host storage, deployment storage and App Insights.
-# Code is deployed separately (staging-tf.yml/prod-tf.yml, target functions);
+# Code is deployed separately (staging.yml/prod.yml, target functions);
 # re-running this leaves the package in the deployment container alone.
 #
 # The app is an azapi resource: azurerm_function_app_flex_consumption doesn't

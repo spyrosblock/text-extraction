@@ -1,7 +1,8 @@
-# Deploys the infra stack, the Function apps and/or the OCR image to prod
-# after approval (the prod environment's required reviewers). Run it on a
-# commit staging.yml has deployed: it reuses that run's OCR image tag. Every
-# deploy step is in one job, so a run needs one approval.
+# Deploys the infrastructure (Terraform, infra/), the Function apps
+# and/or the OCR image to prod (rg-textextract-prod) after approval (the prod
+# environment's required reviewers). Run it on a commit staging.yml has
+# deployed: it reuses that run's OCR image tag. Every deploy step is in one
+# job, so a run needs one approval.
 name: prod
 
 on:
@@ -21,6 +22,9 @@ permissions:
 concurrency:
   group: prod
   cancel-in-progress: false
+
+env:
+  TF_VERSION: 1.16.5
 
 jobs:
   build-functions:
@@ -51,7 +55,7 @@ jobs:
           path: ${{ matrix.app }}/dist/${{ matrix.app }}.zip
           if-no-files-found: error
 
-  # Infra first, so the OCR and function deploys find the stack's resources.
+  # Infra first, so the OCR and function deploys find the resources.
   deploy:
     needs: build-functions
     # Run when the build was skipped (no functions in this target).
@@ -64,9 +68,17 @@ jobs:
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
       FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' }}
       OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' }}
+      # Terraform signs in with the job's OIDC token, for the providers and
+      # the state backend alike.
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
     steps:
       - uses: actions/checkout@v7
-      # Fail before touching Azure if staging.yml hasn't pushed this commit's
+      # Fail before touching Azure if staging hasn't pushed this commit's
       # image. The package is public, so no login.
       - name: OCR image
         if: env.OCR == 'true'
@@ -77,16 +89,25 @@ jobs:
             exit 1
           fi
           echo "OCR_JOB_IMAGE=$image" >>"$GITHUB_ENV"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
       - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Every target reads the state's outputs.
+      - name: Terraform init
+        run: |
+          terraform -chdir=infra init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=prod"
 
       # --- infra
       # The image comes from the OCR deploy; keep the one the job runs now.
-      # The bicepparam files read OCR_IMAGE and fall back to the quickstart
-      # image.
+      # ocr_image falls back to the quickstart image.
       - name: Current OCR image
         if: env.INFRA == 'true'
         run: |
@@ -94,30 +115,27 @@ jobs:
             --query 'properties.template.containers[0].image' -o tsv 2>/dev/null || true)
           echo "OCR image: ${image:-none yet, using the quickstart image}"
           if [[ -n "$image" ]]; then
-            echo "OCR_IMAGE=$image" >>"$GITHUB_ENV"
+            echo "TF_VAR_ocr_image=$image" >>"$GITHUB_ENV"
           fi
-      - name: What-if
+      - name: Plan
         if: env.INFRA == 'true'
-        run: |
-          az deployment group what-if -g "$RG" \
-            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
-            --exclude-change-types Ignore NoChange
-      - name: Deploy stack
+        run: terraform -chdir=infra plan -var-file="$ENV.tfvars" -out=tfplan
+      - name: Apply
         if: env.INFRA == 'true'
-        run: |
-          az stack group create -g "$RG" -n text-extraction \
-            -f infra/main.bicep -p "infra/main.$ENV.bicepparam" \
-            --deny-settings-mode none --action-on-unmanage deleteResources \
-            --description "text-extraction $ENV, ${{ github.sha }}" \
-            --yes --query outputs -o json
+        run: terraform -chdir=infra apply tfplan
+      - name: Outputs
+        id: outputs
+        run: echo "json=$(terraform -chdir=infra output -json | jq -c .)" >>"$GITHUB_OUTPUT"
 
       # --- ocr
-      # Later stack deploys read the image back from the job and keep it.
+      # Later infra deploys read the image back from the job and keep it.
       - name: Update OCR job image
         if: env.OCR == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
         run: |
           az extension add -n containerapp --upgrade --yes
-          job=$(az stack group show -g "$RG" -n text-extraction --query outputs.ocrJobName.value -o tsv)
+          job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
           az containerapp job update -g "$RG" -n "$job" --image "$OCR_JOB_IMAGE" \
             --query 'properties.template.containers[0].image' -o tsv
 
@@ -127,25 +145,15 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Function app names
-        if: env.FUNCTIONS == 'true'
-        id: apps
-        run: |
-          for app in producer consumer; do
-            name=$(az stack group show -g "$RG" -n text-extraction \
-              --query "outputs.${app}Name.value" -o tsv)
-            echo "$app=$name" >>"$GITHUB_OUTPUT"
-          done
       - uses: Azure/functions-action@v1
         if: env.FUNCTIONS == 'true'
         with:
-          app-name: ${{ steps.apps.outputs.producer }}
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).producerName.value }}
           package: dist/producer.zip
           sku: flexconsumption
       - uses: Azure/functions-action@v1
         if: env.FUNCTIONS == 'true'
         with:
-          app-name: ${{ steps.apps.outputs.consumer }}
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).consumerName.value }}
           package: dist/consumer.zip
           sku: flexconsumption
-

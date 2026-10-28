@@ -1,7 +1,7 @@
-# Deletes an environment's infrastructure: the deployment stack with every
-# resource it manages, then anything else left in the resource group (e.g.
-# the Application Insights smart detection rules Azure creates on its own).
-# The resource group, the Entra app and its role assignments stay, so
+# Deletes an environment's infrastructure: terraform destroy, then
+# anything else left in the resource group (e.g. the Application Insights
+# smart detection rules Azure creates on its own). The resource group, the
+# Entra app, its role assignments and the (now empty) state stay, so
 # staging.yml / prod.yml can redeploy without re-running bootstrap.sh.
 name: destroy
 
@@ -26,6 +26,9 @@ concurrency:
   group: ${{ inputs.environment }}
   cancel-in-progress: false
 
+env:
+  TF_VERSION: 1.16.5
+
 jobs:
   destroy:
     if: inputs.confirm == inputs.environment
@@ -34,20 +37,31 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       RG: ${{ vars.AZURE_RG }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+      TF_INPUT: false
     steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
       - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Delete stack
+      - name: Terraform destroy
+        env:
+          TF_ENV: ${{ inputs.environment }}
         run: |
-          if ! az stack group show -g "$RG" -n text-extraction --query id -o tsv >/dev/null 2>&1; then
-            echo "::notice::No text-extraction stack in $RG."
-            exit 0
-          fi
-          az stack group delete -g "$RG" -n text-extraction \
-            --action-on-unmanage deleteResources --yes
+          terraform -chdir=infra init \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=$TF_ENV"
+          terraform -chdir=infra destroy -var-file="$TF_ENV.tfvars" -auto-approve
       - name: Delete leftover resources
         run: |
           mapfile -t ids < <(az resource list -g "$RG" --query '[].id' -o tsv)

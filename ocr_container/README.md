@@ -26,7 +26,7 @@ Each job execution takes messages one at a time and exits once the queue has bee
 | PDF missing but `<id>.json` exists (earlier delivery finished) | completed |
 
 A dead-lettered or expired message leaves its PDF in `pdf-storage`. A lifecycle rule
-(`expire-abandoned-pdfs` in [`infra/modules/storage-data.bicep`](../infra/modules/storage-data.bicep))
+(`expire-abandoned-pdfs` in [`infra/modules/storage-data`](../infra/modules/storage-data/main.tf))
 deletes PDFs 7 days after they were last modified.
 
 The message lock is renewed every `LOCK_RENEW_INTERVAL` so large PDFs can take longer than the
@@ -55,7 +55,7 @@ queue's 5 minute lock. If a renewal fails, processing stops and the message is a
 
 Role assignments for the job's identity: **Storage Blob Data Contributor** on the data storage
 account, and **Azure Service Bus Data Receiver** plus **Azure Service Bus Data Owner** on the queue
-([`infra/modules/roles.bicep`](../infra/modules/roles.bicep)). The KEDA scaler reads the queue
+([`infra/modules/roles`](../infra/modules/roles/main.tf)). The KEDA scaler reads the queue
 length, which needs Data Owner.
 
 ## Local development
@@ -88,7 +88,7 @@ docker run --rm --network host -v "$PWD":/src -w /src golang:1.26-trixie sh -c \
 
 ## Deploy
 
-The job is defined in [`infra/modules/ocr-job.bicep`](../infra/modules/ocr-job.bicep). The
+The job is defined in [`infra/modules/ocr-job`](../infra/modules/ocr-job/main.tf). The
 `staging` workflow (target `ocr` or `all`) builds the image, pushes it to
 `ghcr.io/spyrosblock/ocr-container:<commit sha>` and points the job at it; `prod` deploys the same
 tag. See [Deployment](../README.md#deployment).

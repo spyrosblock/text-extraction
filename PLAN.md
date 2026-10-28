@@ -9,13 +9,13 @@ The repo has three Go components that are ready to run locally:
 They share one Storage account (`pdf-storage` and `text-storage`) and one Service Bus queue (`pdf_queue`). Today, deploying means hand-typed `az` and `func` commands in each README. There's no infrastructure as code and no CI/CD. The code is on GitHub at `spyrosblock/text-extraction` (public, so environment required reviewers work on the free plan).
 
 The goal is repeatable **staging** and **prod** deployments:
-- **Bicep** for the infrastructure.
+- **Terraform** for the infrastructure.
 - **GitHub Actions** with OIDC for the code.
 - Managed identity everywhere, as SPEC.md requires.
 - In both environments, **only the data Storage account** (`pdf-storage` and `text-storage`) is private.
 
 **Decisions:**
-- Bicep, GitHub Actions, staging and prod.
+- Terraform, GitHub Actions, staging and prod.
 - Region: **northeurope** for both environments. westeurope rejects new resources for this subscription ("not accepting new customers").
 - Staging and prod are built the same way: the data account's blob sits behind a private endpoint, and all three components join a VNet to reach it.
 - Everything else stays public with identity-only access: the function host storage, Service Bus **Basic** and the HTTP APIs.
@@ -31,46 +31,46 @@ The native Go worker on Flex is the biggest unknown. Before writing anything els
 3. Deploy with `func azure functionapp publish`, then with `func pack` plus zip/One Deploy.
 4. Call `/api/extract` with `test1.pdf`, which is about 90 MB class. Check the request body limit and the 230 s HTTP timeout.
 
-The findings decide the `runtime` block in `functionapp.bicep` and the functions deploy step in `staging.yml` and `prod.yml`.
+The findings decide the `runtime` block in `modules/functionapp` and the functions deploy step in `staging.yml` and `prod.yml`.
 
 ---
 
-## Step 1: Bicep (`infra/`)
+## Step 1: Terraform (`infra/`)
 
 ```
 infra/
-  main.bicep                  # RG scope; params: env, location, enablePrivateNetworking, ocrImage, adminIpRules
-  main.staging.bicepparam    # enablePrivateNetworking = true, VNet 10.20.0.0/22
-  main.prod.bicepparam       # enablePrivateNetworking = true, VNet 10.24.0.0/22
+  main.tf                     # RG scope; vars: env, location, enable_private_networking, ocr_image, admin_ip_rules
+  staging.tfvars              # enable_private_networking = true, VNet 10.28.0.0/22
+  prod.tfvars                 # enable_private_networking = true, VNet 10.32.0.0/22
   bootstrap.sh                # one-time setup (Step 2)
   modules/
-    monitoring.bicep          # Log Analytics (daily cap param) + App Insights (Entra auth, local auth off)
-    network.bicep             # VNet, subnets, blob private endpoint, private DNS zone
-    storage-data.bicep        # pdf-storage, text-storage, lifecycle policy, network rules
-    storage-host.bicep        # AzureWebJobsStorage + Flex deployment containers
-    servicebus.bicep          # Basic namespace + pdf_queue
-    identities.bicep          # 3 user-assigned identities
-    functionapp.bicep         # Flex plan + app, used twice (producer, consumer)
-    ocr-job.bicep             # Container Apps env + job (image from ghcr.io)
-    roles.bicep               # all data-plane role assignments
+    monitoring/               # Log Analytics (daily cap var) + App Insights (Entra auth, local auth off)
+    network/                  # VNet, subnets, blob private endpoint, private DNS zone
+    storage-data/             # pdf-storage, text-storage, lifecycle policy, network rules
+    storage-host/             # AzureWebJobsStorage + Flex deployment containers
+    servicebus/               # Basic namespace + pdf_queue
+    identities/               # 3 user-assigned identities
+    functionapp/              # Flex plan + app, used twice (producer, consumer)
+    ocr-job/                  # Container Apps env + job (image from ghcr.io)
+    roles/                    # all data-plane role assignments
 ```
 
-Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus and Log Analytics where they fit. Write Flex and the Container Apps job by hand.
+azurerm for everything except the Flex apps, which use azapi because azurerm's Flex Consumption resource doesn't take the Go runtime. State lives in an Azure Storage backend, one container per environment.
 
 ### Resources and settings
 - **storage-data**:
   - Settings: StorageV2, `allowSharedKeyAccess: false`, `allowBlobPublicAccess: false`, TLS 1.2 minimum.
   - Containers: `pdf-storage` and `text-storage`.
-  - Lifecycle policy: an `expire-extracted-text` rule defined inline, with `prefixMatch` built from the `textContainer` param (delete after 1 day).
+  - Lifecycle policy: an `expire-extracted-text` rule, with `prefix_match` built from the text container name (delete after 1 day).
   - Plus an `expire-abandoned-pdfs` rule: delete block blobs under `pdf-storage/` more than **7 days** after last modification. The OCR job deletes PDFs it processes, so this only catches PDFs whose message was dead-lettered or expired.
-  - Networking (both envs): `publicNetworkAccess: Disabled`. If `adminIpRules` is set, use `Enabled` with `defaultAction: Deny` plus those IPs, so Storage Browser works from your machine.
+  - Networking (both envs): `publicNetworkAccess: Disabled`. If `admin_ip_rules` is set, use `Enabled` with `defaultAction: Deny` plus those IPs, so Storage Browser works from your machine.
 - **storage-host**: shared-key access off. One deployment blob container per function app. Stays public in every environment.
 - **servicebus**:
   - **Basic** tier, `disableLocalAuth: true`. Basic is pay-per-operation (~$0.05 per million), so it costs effectively $0. The code uses only peek-lock receive, complete, abandon, dead-letter and lock renewal, which Basic supports, along with the dead-letter queue and TTL. Basic lacks topics, sessions, duplicate detection and transactions, none of which the code uses. Basic caps TTL at 14 days.
   - `pdf_queue` settings: lock `PT5M`, `maxDeliveryCount: 5`, as in `emulators/servicebus-config.json`.
   - **TTL `P1D` with `deadLetteringOnMessageExpiration: true`.** The emulator's `PT1H` would drop messages whenever the OCR job falls behind.
 - **functionapp** (×2):
-  - Plan and instances: Flex plan (FC1). Instance memory 4096 MB for the producer (PDFium on 90 MB PDFs) and 2048 MB for the consumer. `maximumInstanceCount` is a param.
+  - Plan and instances: Flex plan (FC1). Instance memory 4096 MB for the producer (PDFium on 90 MB PDFs) and 2048 MB for the consumer. `maximumInstanceCount` is a variable.
   - Deployment storage uses user-assigned identity authentication.
   - App settings:
     - `STORAGE_ACCOUNT_URL`, `AZURE_CLIENT_ID`.
@@ -84,9 +84,9 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
   - Env vars: `AZURE_CLIENT_ID`, `STORAGE_ACCOUNT_URL`, `SERVICEBUS_NAMESPACE`.
   - Scale rule: `azure-servicebus` with `queueName=pdf_queue`, `namespace`, `messageCount=1` and `identity`.
   - No `registries` block, because the public ghcr image needs no pull credentials.
-  - Image comes from the `ocrImage` param (see "code vs infra" below).
+  - Image comes from the `ocr_image` variable (see "code vs infra" below).
 - **network** (both envs; separate address spaces so they could be peered later):
-  - VNet `10.20.0.0/22` (staging), `10.24.0.0/22` (prod).
+  - VNet `10.28.0.0/22` (staging), `10.32.0.0/22` (prod).
   - `snet-func-producer` /26 and `snet-func-consumer` /26, both delegated to `Microsoft.App/environments`, which Flex needs.
   - `snet-cae` /27, delegated to `Microsoft.App/environments`.
   - `snet-pe` /28.
@@ -98,11 +98,11 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
   - The producer and consumer identities also get Storage Blob Data Owner on the host account. All three get Monitoring Metrics Publisher on App Insights.
 
 ### Code vs infra
-- Re-running Bicep leaves Flex code alone, because the package lives in the deployment container.
-- For the job image, the infra deploy in `staging.yml`/`prod.yml` reads the current image with `az containerapp job show --query properties.template.containers[0].image` and passes it as `ocrImage`. On the first deploy, before any image has been pushed, it falls back to `mcr.microsoft.com/k8se/quickstart-jobs:latest`.
+- Re-running Terraform leaves Flex code alone, because the package lives in the deployment container.
+- For the job image, the infra deploy in `staging.yml`/`prod.yml` reads the current image with `az containerapp job show --query properties.template.containers[0].image` and passes it as `ocr_image`. On the first deploy, before any image has been pushed, it falls back to `mcr.microsoft.com/k8se/quickstart-jobs:latest`.
 
 ### Deploy command
-`az stack group create --deny-settings-mode none --action-on-unmanage deleteResources` (a deployment stack), so resources removed from Bicep get deleted in Azure. Every PR also gets a what-if preview.
+`terraform plan -out tfplan` then `terraform apply tfplan`, so resources removed from the code get deleted in Azure. Every PR also gets a plan preview.
 
 ---
 
@@ -110,9 +110,9 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 
 1. Register the resource providers the deployment needs (the subscription starts with none registered): `Microsoft.Storage`, `Microsoft.ServiceBus`, `Microsoft.ManagedIdentity`, `Microsoft.Web`, `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Insights`, `Microsoft.Network`, with `az provider register -n <ns> --wait`.
 2. Create `rg-textextract-staging` and `rg-textextract-prod` in **northeurope**.
-3. Per env, create an Entra app with a federated credential for `repo:spyrosblock/text-extraction:environment:<env>`. Also add one for `pull_request` on staging, so PRs get what-if.
+3. Per env, create an Entra app with a federated credential for `repo:spyrosblock/text-extraction:environment:<env>`. Also add one for `pull_request` on staging, so PRs get a plan.
 4. Per env, grant **Contributor** and **Role Based Access Control Administrator** on the RG. The second role gets a condition that allows assigning only the data-plane roles listed above.
-5. Create the GitHub environments `staging` and `prod`. `prod` gets required reviewers. Set the environment variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RG`. Set the same variables at repo level with the staging values, because the PR what-if job runs without an environment. Environment variables override them.
+5. Create the GitHub environments `staging` and `prod`. `prod` gets required reviewers. Set the environment variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` and `AZURE_RG`. Set the same variables at repo level with the staging values, because the PR plan job runs without an environment. Environment variables override them.
 
 ---
 
@@ -120,8 +120,8 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 
 | Workflow | Trigger | Steps |
 |---|---|---|
-| `ci.yml` | PR | Go matrix over `producer`, `consumer` and `ocr_container`: `go vet`, `go test ./...` (the ocr job installs `tesseract-ocr` with `-eng` and `-ell`). Then `az bicep lint`/build and what-if against staging, posted to the PR |
-| `staging.yml` | manual (`workflow_dispatch`, with a `target` input: `all`, `infra`, `functions` or `ocr`) | Build what the target needs: the Function apps (`GOOS=linux GOARCH=amd64`, packaged per Step 0) and/or the OCR image (`docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}`, `GITHUB_TOKEN` with `packages: write`, no extra secret). Then one deploy job, in order: what-if and the stack, `az containerapp job update --image`, `Azure/functions-action@v1` (`sku: flexconsumption`). Then the smoke test |
+| `ci.yml` | PR | Go matrix over `producer`, `consumer` and `ocr_container`: `go vet`, `go test ./...` (the ocr job installs `tesseract-ocr` with `-eng` and `-ell`). Then `terraform fmt`/`validate` and a `terraform plan` against staging, posted to the PR |
+| `staging.yml` | manual (`workflow_dispatch`, with a `target` input: `all`, `infra`, `functions` or `ocr`) | Build what the target needs: the Function apps (`GOOS=linux GOARCH=amd64`, packaged per Step 0) and/or the OCR image (`docker/build-push-action` to `ghcr.io/<owner>/ocr-container:${{ github.sha }}`, `GITHUB_TOKEN` with `packages: write`, no extra secret). Then one deploy job, in order: `terraform plan` and `apply`, `az containerapp job update --image`, `Azure/functions-action@v1` (`sku: flexconsumption`). Then the smoke test |
 | `prod.yml` | manual (`workflow_dispatch`, same `target` input) | Build the Function apps if needed, then one deploy job (so one approval) doing the same steps as staging. The OCR deploy reuses the **same tag** `staging.yml` pushed for the commit and fails if it doesn't exist |
 
 **Smoke test** (`infra/smoke.sh`, used by `staging.yml` and run by hand):
@@ -132,8 +132,8 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 ---
 
 ## Step 4: Docs
-- Replace the "Deploy" section in `producer/README.md`, `consumer/README.md` and `ocr_container/README.md` with a pointer to the workflows and `infra/`. Keep the role-assignment notes, which now match `roles.bicep`.
-- The `az storage account management-policy create` snippet in the consumer README becomes "applied by Bicep".
+- Replace the "Deploy" section in `producer/README.md`, `consumer/README.md` and `ocr_container/README.md` with a pointer to the workflows and `infra/`. Keep the role-assignment notes, which now match `modules/roles`.
+- The `az storage account management-policy create` snippet in the consumer README becomes "applied by Terraform".
 - Add a short "Deployment" section to the root `README.md`, covering bootstrap, workflows and environments. Do not touch `SPEC.md`.
 
 ---
@@ -154,7 +154,7 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 ---
 
 ## Verification
-1. `az bicep build infra/main.bicep` and lint are clean. What-if on the empty staging RG lists the expected resources.
+1. `terraform fmt` and `terraform validate` are clean. A plan against the empty staging RG lists the expected resources.
 2. Deploy staging.
    - No keys or connection strings appear in app settings.
    - `allowSharedKeyAccess=false` on both storage accounts.
@@ -166,5 +166,5 @@ Use Azure Verified Modules (`br/public:avm/res/...`) for Storage, Service Bus an
 5. Deploy prod.
    - The same smoke test passes, which proves Flex and the job reach blob through the private endpoint.
    - `curl https://<dataaccount>.blob.core.windows.net/text-storage?restype=container` from outside the VNet is refused.
-   - `nslookup` of the blob host from inside resolves to a `10.20.x.x` address.
+   - `nslookup` of the blob host from inside resolves to a `10.32.x.x` address.
 6. App Insights shows traces from the producer, the consumer and the OCR job.
