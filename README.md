@@ -30,7 +30,7 @@ bootstrap after adding one.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `ci` | pull request | `go vet` and `go test` for each component, `terraform fmt`/`validate`, and a `terraform plan` against staging posted to the PR |
-| `staging` | manual, target `all`, `infra`, `functions` or `ocr` | Builds what the target needs (OCR image pushed to `ghcr.io/spyrosblock/ocr-container:<sha>`), runs `terraform plan`/`apply`, deploys the OCR job image and the Function apps, then runs [`infra/smoke.sh`](infra/smoke.sh) |
+| `staging` | manual, target `all`, `infra`, `functions`, `ocr` or `functions+ocr` | Builds what the target needs (OCR image pushed to `ghcr.io/spyrosblock/ocr-container:<sha>`), runs `terraform plan`/`apply`, deploys the OCR job image and the Function apps, then runs [`infra/smoke.sh`](infra/smoke.sh) |
 | `prod` | manual, same targets, needs approval | Same deploy for prod. The OCR image is the tag `staging` pushed for the commit, so deploy a commit to staging first |
 | `destroy` | manual, environment `staging` or `prod`, type its name to confirm (prod needs approval) | `terraform destroy`, then anything else left in the resource group. The resource group, Entra app, role assignments and (empty) state stay, so `staging`/`prod` can redeploy with target `all` |
 

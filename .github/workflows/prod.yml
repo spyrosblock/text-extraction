@@ -11,7 +11,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, infra, functions, ocr]
+        options: [all, infra, functions, ocr, functions+ocr]
         default: all
 
 permissions:
@@ -28,7 +28,7 @@ env:
 
 jobs:
   build-functions:
-    if: inputs.target == 'all' || inputs.target == 'functions'
+    if: inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -66,8 +66,8 @@ jobs:
       ENV: prod
       RG: ${{ vars.AZURE_RG }}
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
-      FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' }}
-      OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' }}
+      FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr' }}
+      OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr' }}
       # Terraform signs in with the job's OIDC token, for the providers and
       # the state backend alike.
       ARM_USE_OIDC: true
@@ -85,7 +85,7 @@ jobs:
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ocr-container:$GITHUB_SHA"
           if ! docker buildx imagetools inspect "$image" >/dev/null; then
-            echo "::error::$image not found. Deploy this commit to staging (target all or ocr) first."
+            echo "::error::$image not found. Deploy this commit to staging (target all, ocr or functions+ocr) first."
             exit 1
           fi
           echo "OCR_JOB_IMAGE=$image" >>"$GITHUB_ENV"

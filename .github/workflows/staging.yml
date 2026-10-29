@@ -9,7 +9,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, infra, functions, ocr]
+        options: [all, infra, functions, ocr, functions+ocr]
         default: all
 
 permissions:
@@ -26,7 +26,7 @@ env:
 
 jobs:
   build-functions:
-    if: inputs.target == 'all' || inputs.target == 'functions'
+    if: inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -55,7 +55,7 @@ jobs:
 
   # Pushes ghcr.io/<owner>/ocr-container:<sha>; prod.yml deploys that tag.
   build-ocr:
-    if: inputs.target == 'all' || inputs.target == 'ocr'
+    if: inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -94,8 +94,8 @@ jobs:
       ENV: staging
       RG: ${{ vars.AZURE_RG }}
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
-      FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' }}
-      OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' }}
+      FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr' }}
+      OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr' }}
       # Terraform signs in with the job's OIDC token, for the providers and
       # the state backend alike.
       ARM_USE_OIDC: true
