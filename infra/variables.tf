@@ -7,7 +7,7 @@ variable "env" {
 }
 
 variable "resource_group_name" {
-  description = "Existing resource group, created by bootstrap.sh."
+  description = "Existing resource group, created by infra/bootstrap."
   type        = string
 }
 

@@ -2,7 +2,7 @@
 # anything else left in the resource group (e.g. the Application Insights
 # smart detection rules Azure creates on its own). The resource group, the
 # Entra app, its role assignments and the (now empty) state stay, so
-# staging.yml / prod.yml can redeploy without re-running bootstrap.sh.
+# staging.yml / prod.yml can redeploy without re-running the bootstrap.
 name: destroy
 
 on:

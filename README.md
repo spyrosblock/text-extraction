@@ -8,7 +8,7 @@ OCRs the pages without a text layer, and [`consumer`](consumer) returns the text
 Two environments, `staging` and `prod`, each in its own resource group (`rg-textextract-<env>`,
 northeurope). The infrastructure is Terraform in [`infra/`](infra) (azurerm, plus
 azapi for the Function apps, since azurerm's Flex Consumption resource doesn't take the Go runtime).
-Its state is in the storage account `bootstrap.sh` creates in `rg-textextract-tfstate`, one
+Its state is in the storage account the bootstrap creates in `rg-textextract-tfstate`, one
 container per environment. The apps use managed identities only; the data storage account
 (`pdf-storage`, `text-storage`) is reachable only through a private endpoint in the environment's
 VNet.
@@ -16,10 +16,14 @@ VNet.
 ### Bootstrap (once)
 
 [`infra/bootstrap.sh`](infra/bootstrap.sh), run by hand while logged in to `az` (subscription Owner,
-allowed to register Entra apps) and `gh` (repo admin). It registers the resource providers, creates
-the resource groups, an Entra app per environment with GitHub OIDC federated credentials and
+allowed to register Entra apps) and `gh` (repo admin). It applies the Terraform in
+[`infra/bootstrap/`](infra/bootstrap) with your credentials: it registers the resource providers,
+creates the resource groups, an Entra app per environment with GitHub OIDC federated credentials and
 scoped role assignments, the Terraform state account, and the GitHub environments and variables
-(`prod` gets a required reviewer). It is safe to re-run.
+(`prod` gets a required reviewer). Its own state is local (`infra/bootstrap/terraform.tfstate`,
+not committed), so keep that file. It is safe to re-run. The roles the deployment identity may
+assign are those in [`infra/modules/roles/roles.json`](infra/modules/roles/roles.json); re-run the
+bootstrap after adding one.
 
 ### Workflows
 
@@ -30,7 +34,7 @@ scoped role assignments, the Terraform state account, and the GitHub environment
 | `prod` | manual, same targets, needs approval | Same deploy for prod. The OCR image is the tag `staging` pushed for the commit, so deploy a commit to staging first |
 | `destroy` | manual, environment `staging` or `prod`, type its name to confirm (prod needs approval) | `terraform destroy`, then anything else left in the resource group. The resource group, Entra app, role assignments and (empty) state stay, so `staging`/`prod` can redeploy with target `all` |
 
-To run Terraform and the smoke test by hand (`bootstrap.sh` gives its caller access to the state;
+To run Terraform and the smoke test by hand (the bootstrap gives its caller access to the state;
 `TFSTATE_STORAGE_ACCOUNT` is a repo variable):
 
 ```sh

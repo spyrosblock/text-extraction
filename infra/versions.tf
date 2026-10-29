@@ -1,4 +1,4 @@
-# State lives in the bootstrap's state account (bootstrap.sh), one container
+# State lives in the bootstrap's state account (infra/bootstrap), one container
 # per environment, Entra auth only. The workflows pass the rest:
 #   terraform init -backend-config=storage_account_name=<account> \
 #     -backend-config=container_name=<staging|prod>
@@ -33,7 +33,7 @@ provider "azurerm" {
   }
   storage_use_azuread = true
   # The deployment identity only has rights on its resource group;
-  # bootstrap.sh registers the providers.
+  # infra/bootstrap registers the providers.
   resource_provider_registrations = "none"
 }
 
