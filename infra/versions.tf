@@ -25,8 +25,12 @@ terraform {
 # The subscription comes from ARM_SUBSCRIPTION_ID.
 provider "azurerm" {
   features {
-    # The data account's blob endpoint is private, so manage containers
-    # through ARM only.
+    # Stop the provider reading storage accounts' queue and static-website
+    # properties from the data plane on every refresh. Those calls would
+    # fail from outside the VNet because the data account's endpoints are
+    # private. Everything managed here goes through ARM (containers via
+    # storage_account_id), so drift detection is unaffected;
+    # queue_properties/static_website can't be set while this is off.
     storage {
       data_plane_available = false
     }

@@ -23,8 +23,13 @@ terraform {
 # Signs in with the az CLI; the subscription comes from ARM_SUBSCRIPTION_ID.
 provider "azurerm" {
   features {
-    # The state account has no shared keys and the caller's data access is
-    # granted in the same apply, so manage containers through ARM only.
+    # Stop the provider reading the storage account's queue and
+    # static-website properties from the data plane on every refresh. Those
+    # calls would 403: the account has no shared keys and the caller's data
+    # role is granted in this same apply. Everything managed here goes
+    # through ARM (containers via storage_account_id), so drift detection is
+    # unaffected; queue_properties/static_website can't be set while this is
+    # off.
     storage {
       data_plane_available = false
     }
