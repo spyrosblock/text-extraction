@@ -80,7 +80,7 @@ func TestIntegration(t *testing.T) {
 	p := &processor.Processor{
 		Blobs: blobs, PDF: opener{extractor}, OCR: &ocr.Tesseract{Languages: "eng+ell"},
 		PDFContainer: "pdf-storage", TextContainer: "text-storage",
-		Workers: 2, DPI: 150, MinConfidence: 60,
+		Workers: 2, DPI: 150,
 	}
 	j := &job.Job{Receiver: receiver, Process: p.Process, IdleTimeout: 5 * time.Second, LockRenewInterval: time.Minute}
 	if err := j.Run(ctx); err != nil {
@@ -95,7 +95,12 @@ func TestIntegration(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc.ID != id || len(doc.Pages) != 2 || doc.Pages[0].Text != "integration text" || doc.Pages[1].Text != "" {
+	// The blank second page is OCRed and finds no words.
+	want := []contract.Page{
+		{Number: 1, Text: "integration text", Confidence: contract.TextLayer},
+		{Number: 2, Text: "", Confidence: 0},
+	}
+	if doc.ID != id || len(doc.Pages) != 2 || doc.Pages[0] != want[0] || doc.Pages[1] != want[1] {
 		t.Fatalf("doc = %+v", doc)
 	}
 	if ok, _ := blobs.Exists(ctx, "pdf-storage", req.Blob); ok {

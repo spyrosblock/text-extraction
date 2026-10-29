@@ -18,7 +18,7 @@ This is an application with input a pdf file and output the text of the pdf file
 producer, consumer and ocr_container are all written in Go. Go do not need a custom handler.
 
 ### OCR
-The ocr_container has threads that perform ocr in parallel in the pages of the pdfs. If one page is not clear enough for the ocr to read, it skips it. Tesseract with eng+ell languages.
+The ocr_container has threads that perform ocr in parallel in the pages of the pdfs. Every page is returned with its text and a confidence: the ocr mean word confidence (0-100), or `-` for a page that came from the text layer. Text is returned however low the confidence. A page that fails never fails the whole document. Tesseract with eng+ell languages.
 
 ### API contract
 Producer pdf size limit 90MB

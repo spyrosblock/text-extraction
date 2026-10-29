@@ -12,8 +12,13 @@ The consumer reads
 `<id>.json` from `text-storage` and returns it as-is:
 
 ```json
-{"id": "<uuid>", "pages": [{"page": 1, "text": "..."}, {"page": 2, "text": "..."}]}
+{"id": "<uuid>", "pages": [{"page": 1, "text": "...", "confidence": "-"}, {"page": 2, "text": "...", "confidence": 87.46}]}
 ```
+
+Every page of the PDF is listed. `confidence` is `"-"` when the text comes from the PDF's text
+layer. For an OCRed page it is Tesseract's mean word confidence, a number from 0 to 100, and the
+page carries whatever text was read, however low the confidence. `0` with empty text means no
+words were found or the page couldn't be OCRed.
 
 Responses: `200` with the document, `400` (body is not valid JSON or id is not a uuid), `404` (no text for the id: unknown,
 OCR not finished yet, or expired), `500`.

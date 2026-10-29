@@ -59,9 +59,6 @@ type Processor struct {
 	Workers int
 	// DPI pages are rendered at before OCR.
 	DPI int
-	// MinConfidence is the mean word confidence (0-100) below which an OCRed
-	// page is considered unreadable and left empty.
-	MinConfidence float64
 }
 
 // Process handles one OCR request. It is idempotent: the text is uploaded
@@ -106,11 +103,11 @@ func (p *Processor) Process(ctx context.Context, req contract.OCRRequest) error 
 		log.WarnContext(ctx, "delete pdf", "error", err)
 	}
 	log.InfoContext(ctx, "text extracted",
-		"pages", len(pages), "text_layer", stats.textLayer, "ocr", stats.ocr, "skipped", stats.skipped)
+		"pages", len(pages), "text_layer", stats.textLayer, "ocr", stats.ocr, "ocr_failed", stats.ocrFailed)
 	return nil
 }
 
-type stats struct{ textLayer, ocr, skipped int }
+type stats struct{ textLayer, ocr, ocrFailed int }
 
 type ocrJob struct {
 	index int
@@ -120,6 +117,12 @@ type ocrJob struct {
 // extract returns the text of every page. Pages with a text layer use it;
 // the rest are rendered one at a time (a PDFium document is single threaded)
 // and handed to Workers goroutines running Tesseract.
+//
+// Every OCRed page keeps whatever text Tesseract found, with its confidence.
+// A page that can't be rendered or OCRed doesn't fail the document: it is
+// kept with no text and confidence 0. Only errors
+// that affect the whole document, such as cancellation or Tesseract not
+// starting, are returned.
 func (p *Processor) extract(ctx context.Context, data []byte) ([]contract.Page, stats, error) {
 	doc, err := p.PDF.Open(ctx, data)
 	if errors.Is(err, pdf.ErrInvalidPDF) {
@@ -136,9 +139,12 @@ func (p *Processor) extract(ctx context.Context, data []byte) ([]contract.Page, 
 	for i := range n {
 		text, err := doc.Text(i)
 		if err != nil {
-			return nil, stats{}, err
+			// Usually PDFium can't load the page, so rendering it fails too
+			// and it ends up empty with confidence 0.
+			slog.WarnContext(ctx, "read text layer", "page", i+1, "error", err)
+			text = ""
 		}
-		pages[i] = contract.Page{Number: i + 1, Text: text}
+		pages[i] = contract.Page{Number: i + 1, Text: text, Confidence: contract.TextLayer}
 		if strings.TrimSpace(text) == "" {
 			needOCR = append(needOCR, i)
 		}
@@ -154,13 +160,17 @@ func (p *Processor) extract(ctx context.Context, data []byte) ([]contract.Page, 
 	// OCRed; a 300 DPI A4 page is ~9MB.
 	jobs := make(chan ocrJob)
 	results := make([]ocr.Result, n)
+	// Each goroutine writes distinct indexes of both.
+	failed := make([]bool, n)
 
 	g.Go(func() error {
 		defer close(jobs)
 		for _, i := range needOCR {
 			img, err := doc.Render(i, p.DPI)
 			if err != nil {
-				return err
+				slog.WarnContext(ctx, "render page", "page", i+1, "error", err)
+				failed[i] = true
+				continue
 			}
 			select {
 			case jobs <- ocrJob{i, img}:
@@ -174,10 +184,17 @@ func (p *Processor) extract(ctx context.Context, data []byte) ([]contract.Page, 
 		g.Go(func() error {
 			for job := range jobs {
 				res, err := p.OCR.Recognize(ctx, job.img)
-				if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if errors.Is(err, ocr.ErrUnavailable) {
 					return fmt.Errorf("ocr page %d: %w", job.index+1, err)
 				}
-				// Each goroutine writes distinct indexes.
+				if err != nil {
+					slog.WarnContext(ctx, "ocr page", "page", job.index+1, "error", err)
+					failed[job.index] = true
+					continue
+				}
 				results[job.index] = res
 			}
 			return nil
@@ -188,14 +205,13 @@ func (p *Processor) extract(ctx context.Context, data []byte) ([]contract.Page, 
 	}
 
 	for _, i := range needOCR {
-		res := results[i]
-		if res.Words == 0 || res.Confidence < p.MinConfidence {
-			slog.DebugContext(ctx, "page unreadable, skipped", "page", i+1, "confidence", res.Confidence, "words", res.Words)
-			st.skipped++
-			continue
+		pages[i].Text = results[i].Text
+		pages[i].Confidence = contract.Confidence(results[i].Confidence)
+		if failed[i] {
+			st.ocrFailed++
+		} else {
+			st.ocr++
 		}
-		pages[i].Text = res.Text
-		st.ocr++
 	}
 	return pages, st, nil
 }

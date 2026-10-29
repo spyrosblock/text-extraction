@@ -9,12 +9,18 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 )
+
+// ErrUnavailable is returned when the tesseract binary can't be started. It
+// is not specific to one image, so callers shouldn't treat it as a bad page.
+var ErrUnavailable = errors.New("tesseract unavailable")
 
 // Result is the text Tesseract read from one image.
 type Result struct {
@@ -32,22 +38,56 @@ type Tesseract struct {
 	Languages string
 }
 
-// Recognize runs OCR on img (any format Leptonica reads: PGM, PNG, TIFF...).
-func (t *Tesseract) Recognize(ctx context.Context, img []byte) (Result, error) {
-	bin := t.Binary
-	if bin == "" {
-		bin = "tesseract"
+func (t *Tesseract) binary() string {
+	if t.Binary == "" {
+		return "tesseract"
 	}
+	return t.Binary
+}
+
+// Check verifies that the binary runs and has data for every language in
+// Languages, so a misconfigured image fails at startup instead of OCRing
+// every page to nothing.
+func (t *Tesseract) Check(ctx context.Context) error {
+	var stdout, stderr bytes.Buffer
+	cmd := exec.CommandContext(ctx, t.binary(), "--list-langs")
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %v: %s", ErrUnavailable, err, strings.TrimSpace(stderr.String()))
+	}
+	// The first line is a header: List of available languages in "<dir>" (n):
+	_, list, _ := strings.Cut(stdout.String(), "\n")
+	installed := strings.Fields(list)
+	var missing []string
+	for _, lang := range strings.Split(t.Languages, "+") {
+		if !slices.Contains(installed, lang) {
+			missing = append(missing, lang)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("tesseract has no data for %s (installed: %s)",
+			strings.Join(missing, ", "), strings.Join(installed, ", "))
+	}
+	return nil
+}
+
+// Recognize runs OCR on img (any format Leptonica reads: PGM, PNG, TIFF...).
+// It returns ErrUnavailable when the binary can't be started; any other
+// error is about this image.
+func (t *Tesseract) Recognize(ctx context.Context, img []byte) (Result, error) {
 	// tsv output carries per-word confidences next to the text, so one run
 	// gives both.
-	cmd := exec.CommandContext(ctx, bin, "stdin", "stdout", "-l", t.Languages, "--psm", "3", "tsv")
+	cmd := exec.CommandContext(ctx, t.binary(), "stdin", "stdout", "-l", t.Languages, "--psm", "3", "tsv")
 	cmd.Stdin = bytes.NewReader(img)
 	// Pages already run in parallel; stop each process from also spawning
 	// an OpenMP thread per core.
 	cmd.Env = append(os.Environ(), "OMP_THREAD_LIMIT=1")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return Result{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
 			return Result{}, ctx.Err()
 		}

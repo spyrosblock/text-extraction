@@ -118,7 +118,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, Response{ID: id, Status: StatusQueued})
 }
 
+// storeText stores pages that all came from the text layer.
 func (h *Handler) storeText(ctx context.Context, id string, pages []contract.Page) error {
+	for i := range pages {
+		pages[i].Confidence = contract.TextLayer
+	}
 	body, err := json.Marshal(contract.Document{ID: id, Pages: pages})
 	if err != nil {
 		return err

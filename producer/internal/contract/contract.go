@@ -2,10 +2,46 @@
 // ocr_container and consumer. Keep it in sync across components.
 package contract
 
+import (
+	"fmt"
+	"math"
+	"strconv"
+)
+
 // Page is the extracted text of a single PDF page. Number is 1-based.
 type Page struct {
-	Number int    `json:"page"`
-	Text   string `json:"text"`
+	Number     int        `json:"page"`
+	Text       string     `json:"text"`
+	Confidence Confidence `json:"confidence"`
+}
+
+// Confidence is the mean word confidence (0-100) Tesseract had in a page's
+// text; 0 when it found no words or the page couldn't be OCRed. TextLayer
+// marks text taken from the PDF's text layer.
+//
+// It is encoded as a number rounded to 2 decimals, or "-" for TextLayer.
+type Confidence float64
+
+const TextLayer Confidence = -1
+
+func (c Confidence) MarshalJSON() ([]byte, error) {
+	if c == TextLayer {
+		return []byte(`"-"`), nil
+	}
+	return strconv.AppendFloat(nil, math.Round(float64(c)*100)/100, 'f', -1, 64), nil
+}
+
+func (c *Confidence) UnmarshalJSON(b []byte) error {
+	if string(b) == `"-"` {
+		*c = TextLayer
+		return nil
+	}
+	f, err := strconv.ParseFloat(string(b), 64)
+	if err != nil {
+		return fmt.Errorf("confidence must be a number or \"-\", got %s", b)
+	}
+	*c = Confidence(f)
+	return nil
 }
 
 // Document is stored as "<id>.json" in the text_storage container and is

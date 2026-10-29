@@ -118,7 +118,7 @@ func TestAllPagesHaveTextStoresText(t *testing.T) {
 			if err := json.Unmarshal(stored, &doc); err != nil {
 				t.Fatal(err)
 			}
-			if doc.ID != resp.ID || len(doc.Pages) != 2 || doc.Pages[1].Text != "two" {
+			if doc.ID != resp.ID || len(doc.Pages) != 2 || doc.Pages[1].Text != "two" || doc.Pages[0].Confidence != contract.TextLayer || doc.Pages[1].Confidence != contract.TextLayer {
 				t.Errorf("stored doc = %+v", doc)
 			}
 			if len(queue.sent) != 0 || len(blobs.uploaded) != 1 {

@@ -1,9 +1,59 @@
 package ocr
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// fakeTesseract writes a script that prints out and exits with code.
+func fakeTesseract(t *testing.T, out string, code int) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "tesseract")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' '%s'\nexit %d\n", out, code)
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+func TestCheck(t *testing.T) {
+	const langs = "List of available languages in \"/usr/share/tesseract-ocr/5/tessdata/\" (3):\neng\nell\nosd\n"
+	tests := map[string]struct {
+		bin       string
+		languages string
+		wantErr   bool
+	}{
+		"installed":        {fakeTesseract(t, langs, 0), "eng+ell", false},
+		"missing language": {fakeTesseract(t, langs, 0), "eng+deu", true},
+		"binary fails":     {fakeTesseract(t, "", 1), "eng", true},
+		"no binary":        {filepath.Join(t.TempDir(), "missing"), "eng", true},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := (&Tesseract{Binary: tt.bin, Languages: tt.languages}).Check(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, want error %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRecognizeUnavailable(t *testing.T) {
+	tess := &Tesseract{Binary: filepath.Join(t.TempDir(), "missing"), Languages: "eng"}
+	if _, err := tess.Recognize(context.Background(), []byte("img")); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing binary: err = %v, want ErrUnavailable", err)
+	}
+	// A binary that starts but fails is about the image, not Tesseract.
+	tess.Binary = fakeTesseract(t, "", 1)
+	if _, err := tess.Recognize(context.Background(), []byte("img")); err == nil || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("failing binary: err = %v, want an image error", err)
+	}
+}
 
 func TestParseTSV(t *testing.T) {
 	rows := []string{

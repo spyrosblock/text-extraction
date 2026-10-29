@@ -6,7 +6,7 @@ Azure Functions app (native Go worker, Flex Consumption) exposing `POST /api/ext
    - raw body with `Content-Type: application/pdf` (or `application/octet-stream`), or
    - `multipart/form-data` with the PDF in the `file` field.
 2. Extracts the text layer of every page with PDFium (WebAssembly, no cgo).
-3. If every page has text → stores `{"id","pages":[{"page","text"}]}` as `<id>.json` in `text-storage`.
+3. If every page has text → stores `{"id","pages":[{"page","text","confidence":"-"}]}` as `<id>.json` in `text-storage`.
    Otherwise → stores the PDF as `<id>.pdf` in `pdf-storage` and sends `{"id","blob"}` to `pdf_queue`.
 4. Responds `202 Accepted` with `{"id": "<uuid>", "status": "completed" | "queued"}`.
 

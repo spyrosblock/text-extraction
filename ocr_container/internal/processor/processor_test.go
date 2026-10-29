@@ -66,18 +66,25 @@ func (b *fakeBlobs) Delete(_ context.Context, c, n string) error {
 }
 
 // fakeDoc pages: a text layer, or "img:<text>" for a page without one whose
-// rendered image OCRs to <text>.
+// rendered image OCRs to <text>. "badtext" fails to read its text layer and
+// "norender" fails to render.
 type fakeDoc struct{ pages []string }
 
 func (d *fakeDoc) PageCount() int { return len(d.pages) }
 func (d *fakeDoc) Close()         {}
 func (d *fakeDoc) Text(i int) (string, error) {
-	if strings.HasPrefix(d.pages[i], "img:") {
+	switch {
+	case d.pages[i] == "badtext":
+		return "", errors.New("text layer broken")
+	case strings.HasPrefix(d.pages[i], "img:"), d.pages[i] == "norender":
 		return "", nil
 	}
 	return d.pages[i], nil
 }
 func (d *fakeDoc) Render(i, _ int) ([]byte, error) {
+	if d.pages[i] == "norender" {
+		return nil, errors.New("render failed")
+	}
 	return []byte(strings.TrimPrefix(d.pages[i], "img:")), nil
 }
 
@@ -90,14 +97,18 @@ func (o fakeOpener) Open(_ context.Context, data []byte) (Document, error) {
 	return o.doc, nil
 }
 
-// fakeOCR returns the image bytes as text. "blurry" has low confidence and
-// "fail" errors.
+// fakeOCR returns the image bytes as text. "blurry" has low confidence,
+// "fail" errors and "unavailable" fails as if tesseract couldn't start. Like
+// Tesseract, it fails once ctx is cancelled.
 type fakeOCR struct {
 	calls, running, maxRunning atomic.Int32
 }
 
-func (o *fakeOCR) Recognize(_ context.Context, img []byte) (ocr.Result, error) {
+func (o *fakeOCR) Recognize(ctx context.Context, img []byte) (ocr.Result, error) {
 	o.calls.Add(1)
+	if err := ctx.Err(); err != nil {
+		return ocr.Result{}, err
+	}
 	n := o.running.Add(1)
 	defer o.running.Add(-1)
 	for {
@@ -109,6 +120,8 @@ func (o *fakeOCR) Recognize(_ context.Context, img []byte) (ocr.Result, error) {
 	switch s := string(img); s {
 	case "fail":
 		return ocr.Result{}, errors.New("tesseract crashed")
+	case "unavailable":
+		return ocr.Result{}, ocr.ErrUnavailable
 	case "blurry":
 		return ocr.Result{Text: "b1urry", Confidence: 20, Words: 1}, nil
 	default:
@@ -126,7 +139,6 @@ func newProcessor(blobs *fakeBlobs, pages ...string) (*Processor, *fakeOCR) {
 		TextContainer: "text-storage",
 		Workers:       2,
 		DPI:           300,
-		MinConfidence: 60,
 	}, o
 }
 
@@ -151,16 +163,14 @@ func TestProcess(t *testing.T) {
 	if err := p.Process(context.Background(), req); err != nil {
 		t.Fatal(err)
 	}
-	doc := storedDoc(t, blobs)
-	want := []string{"layer one", "scanned two", "", "scanned four", "scanned five"}
-	if doc.ID != id || len(doc.Pages) != len(want) {
-		t.Fatalf("doc = %+v", doc)
+	want := []contract.Page{
+		page(1, "layer one", contract.TextLayer),
+		page(2, "scanned two", 90),
+		page(3, "b1urry", 20),
+		page(4, "scanned four", 90),
+		page(5, "scanned five", 90),
 	}
-	for i, w := range want {
-		if doc.Pages[i].Number != i+1 || doc.Pages[i].Text != w {
-			t.Errorf("page %d = %+v, want %q", i+1, doc.Pages[i], w)
-		}
-	}
+	checkPages(t, storedDoc(t, blobs), want)
 	if _, ok := blobs.blobs["pdf-storage/"+req.Blob]; ok {
 		t.Error("pdf not deleted")
 	}
@@ -172,15 +182,68 @@ func TestProcess(t *testing.T) {
 	}
 }
 
-func TestProcessOCRError(t *testing.T) {
+func page(n int, text string, conf contract.Confidence) contract.Page {
+	return contract.Page{Number: n, Text: text, Confidence: conf}
+}
+
+func checkPages(t *testing.T, doc contract.Document, want []contract.Page) {
+	t.Helper()
+	if doc.ID != id || len(doc.Pages) != len(want) {
+		t.Fatalf("doc = %+v", doc)
+	}
+	for i, w := range want {
+		if doc.Pages[i] != w {
+			t.Errorf("page %d = %+v, want %+v", i+1, doc.Pages[i], w)
+		}
+	}
+}
+
+func TestProcessPageErrors(t *testing.T) {
 	blobs := newBlobs("pdf-storage/"+req.Blob, "pdf")
-	p, _ := newProcessor(blobs, "img:ok", "img:fail", "img:ok")
+	p, _ := newProcessor(blobs, "img:one", "img:fail", "norender", "badtext", "img:five")
+	if err := p.Process(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	want := []contract.Page{
+		page(1, "one", 90),
+		page(2, "", 0),
+		page(3, "", 0),
+		// The fake still renders a page whose text layer failed; PDFium
+		// usually can't, which leaves it like page 3.
+		page(4, "badtext", 90),
+		page(5, "five", 90),
+	}
+	checkPages(t, storedDoc(t, blobs), want)
+}
+
+func TestProcessOCRUnavailable(t *testing.T) {
+	blobs := newBlobs("pdf-storage/"+req.Blob, "pdf")
+	p, _ := newProcessor(blobs, "img:one", "img:unavailable")
 	err := p.Process(context.Background(), req)
-	if err == nil || errors.Is(err, ErrPermanent) {
-		t.Fatalf("err = %v, want transient error", err)
+	if !errors.Is(err, ocr.ErrUnavailable) || errors.Is(err, ErrPermanent) {
+		t.Fatalf("err = %v, want transient ErrUnavailable", err)
+	}
+	if _, ok := blobs.blobs["text-storage/"+contract.TextBlobName(id)]; ok {
+		t.Error("text stored although tesseract was unavailable")
 	}
 	if _, ok := blobs.blobs["pdf-storage/"+req.Blob]; !ok {
-		t.Error("pdf deleted after failure")
+		t.Error("pdf deleted although tesseract was unavailable")
+	}
+}
+
+func TestProcessCancelled(t *testing.T) {
+	blobs := newBlobs("pdf-storage/"+req.Blob, "pdf")
+	p, _ := newProcessor(blobs, "img:one", "img:two")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := p.Process(ctx, req); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if _, ok := blobs.blobs["text-storage/"+contract.TextBlobName(id)]; ok {
+		t.Error("partial text stored after cancellation")
+	}
+	if _, ok := blobs.blobs["pdf-storage/"+req.Blob]; !ok {
+		t.Error("pdf deleted after cancellation")
 	}
 }
 

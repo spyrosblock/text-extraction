@@ -8,10 +8,12 @@ For each message `{"id","blob"}` sent by the producer it:
 2. Reads the text layer of every page with PDFium (WebAssembly, no cgo).
 3. Renders each page without a text layer to a 300 DPI grayscale image and runs Tesseract
    (`eng+ell`) on it. Pages are OCRed in parallel, `OCR_WORKERS` at a time.
-4. Leaves a page's text empty when the OCR is unreadable: no words found, or mean word
-   confidence below `OCR_MIN_CONFIDENCE`. The page stays in the output so page numbers line up.
-5. Stores `{"id","pages":[{"page","text"}]}` as `<id>.json` in `text-storage` (the same format
-   the producer writes), then deletes the PDF.
+4. Gives every page a `confidence`: `"-"` for text-layer pages, otherwise Tesseract's mean word
+   confidence (0-100, 2 decimals) next to whatever text it read, however low. A page with no
+   words found, or that can't be loaded, rendered or OCRed, has no text and confidence `0`. One
+   bad page never fails the document.
+5. Stores `{"id","pages":[{"page","text","confidence"}]}` as `<id>.json` in `text-storage` (the
+   same format the producer writes), then deletes the PDF.
 
 Each job execution takes messages one at a time and exits once the queue has been idle for
 `IDLE_TIMEOUT`. KEDA starts more executions while messages are waiting.
@@ -21,7 +23,9 @@ Each job execution takes messages one at a time and exits once the queue has bee
 | Case | Result |
 | --- | --- |
 | Success | message completed |
-| Transient error (storage, Tesseract crash, SIGTERM) | message abandoned; Service Bus redelivers it and dead-letters it after `MaxDeliveryCount` (5) |
+| Page fails to render or OCR (e.g. Tesseract killed for memory) | page stored empty with confidence `0`; message completed |
+| Tesseract missing, or no data for a language in `OCR_LANGUAGES` | execution exits with an error at startup; messages stay queued |
+| Transient error (storage, Tesseract can't start, SIGTERM, lost message lock) | message abandoned; Service Bus redelivers it and dead-letters it after `MaxDeliveryCount` (5) |
 | Bad message, id isn't a uuid, blob isn't `<id>.pdf`, PDF missing or unreadable | dead-lettered right away |
 | PDF missing but `<id>.json` exists (earlier delivery finished) | completed |
 
@@ -47,7 +51,6 @@ queue's 5 minute lock. If a renewal fails, processing stops and the message is a
 | `OCR_WORKERS` | CPU count | pages OCRed in parallel |
 | `OCR_LANGUAGES` | `eng+ell` | Tesseract `-l` |
 | `OCR_DPI` | `300` | render resolution |
-| `OCR_MIN_CONFIDENCE` | `60` | 0-100, pages below are skipped |
 | `IDLE_TIMEOUT` | `30s` | exit after this long without messages; `0` never exits |
 | `LOCK_RENEW_INTERVAL` | `2m` | keep below the queue lock duration |
 | `MAX_MESSAGES` | `0` | stop after N messages; `0` = no limit |

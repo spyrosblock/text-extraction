@@ -38,10 +38,9 @@ type config struct {
 	Queue            string
 	CreateContainers bool
 
-	OCRWorkers       int
-	OCRLanguages     string
-	OCRDPI           int
-	OCRMinConfidence float64
+	OCRWorkers   int
+	OCRLanguages string
+	OCRDPI       int
 
 	IdleTimeout       time.Duration
 	LockRenewInterval time.Duration
@@ -72,14 +71,6 @@ func loadConfig() (config, error) {
 	collect(envInt("MAX_MESSAGES", 0, 0, &c.MaxMessages))
 	collect(envDuration("IDLE_TIMEOUT", 30*time.Second, &c.IdleTimeout))
 	collect(envDuration("LOCK_RENEW_INTERVAL", 2*time.Minute, &c.LockRenewInterval))
-	c.OCRMinConfidence = 60
-	if v := os.Getenv("OCR_MIN_CONFIDENCE"); v != "" {
-		f, err := strconv.ParseFloat(v, 64)
-		if err != nil || f < 0 || f > 100 {
-			collect(fmt.Errorf("OCR_MIN_CONFIDENCE must be between 0 and 100, got %q", v))
-		}
-		c.OCRMinConfidence = f
-	}
 
 	if c.StorageAccountURL == "" && c.StorageConnString == "" {
 		errs = append(errs, errors.New("STORAGE_ACCOUNT_URL is required"))
@@ -191,15 +182,19 @@ func run() error {
 	}
 	defer extractor.Close()
 
+	tesseract := &ocr.Tesseract{Languages: cfg.OCRLanguages}
+	if err := tesseract.Check(ctx); err != nil {
+		return err
+	}
+
 	p := &processor.Processor{
 		Blobs:         blobs,
 		PDF:           opener{extractor},
-		OCR:           &ocr.Tesseract{Languages: cfg.OCRLanguages},
+		OCR:           tesseract,
 		PDFContainer:  cfg.PDFContainer,
 		TextContainer: cfg.TextContainer,
 		Workers:       cfg.OCRWorkers,
 		DPI:           cfg.OCRDPI,
-		MinConfidence: cfg.OCRMinConfidence,
 	}
 	j := &job.Job{
 		Receiver:          receiver,
