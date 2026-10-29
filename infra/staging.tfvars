@@ -1,7 +1,6 @@
 env                       = "staging"
 resource_group_name       = "rg-textextract-staging"
-enable_private_networking = true
-vnet_address_prefix       = "10.28.0.0/22"
+enable_private_networking = false
 admin_ip_rules            = []
 
 # The infra deploy (staging.yml/prod.yml) sets TF_VAR_ocr_image to the

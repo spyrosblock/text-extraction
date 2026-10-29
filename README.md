@@ -9,9 +9,9 @@ Two environments, `staging` and `prod`, each in its own resource group (`rg-text
 northeurope). The infrastructure is Terraform in [`infra/`](infra) (azurerm, plus
 azapi for the Function apps, since azurerm's Flex Consumption resource doesn't take the Go runtime).
 Its state is in the storage account the bootstrap creates in `rg-textextract-tfstate`, one
-container per environment. The apps use managed identities only; the data storage account
+container per environment. The apps use managed identities only. In prod the data storage account
 (`pdf-storage`, `text-storage`) is reachable only through a private endpoint in the environment's
-VNet.
+VNet; staging has no VNet and keeps the account public (still identity-only).
 
 ### Bootstrap (once)
 

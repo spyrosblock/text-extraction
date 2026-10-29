@@ -1,6 +1,6 @@
 # Data account: pdf-storage (PDFs waiting for OCR) and text-storage
-# (extracted text, deleted after a day). Identity-only, and private: blob is
-# reached through the private endpoint in the network module.
+# (extracted text, deleted after a day). Identity-only; with private networking
+# on (prod), blob is reached through the private endpoint in the network module.
 variable "resource_group_name" {
   type = string
 }

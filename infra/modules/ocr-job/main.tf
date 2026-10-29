@@ -51,8 +51,9 @@ resource "azurerm_container_app_environment" "this" {
   resource_group_name      = var.resource_group_name
   location                 = var.location
   infrastructure_subnet_id = var.subnet_id
-  # The job has no ingress, so nothing needs a public load balancer.
-  internal_load_balancer_enabled = var.subnet_id != null
+  # The job has no ingress, so nothing needs a public load balancer. Only
+  # valid with a subnet.
+  internal_load_balancer_enabled = var.subnet_id != null ? true : null
   # Console logs go to Log Analytics through the diagnostic setting below
   # (the log-analytics destination would need the workspace shared key).
   logs_destination = "azure-monitor"
