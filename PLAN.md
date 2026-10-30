@@ -67,7 +67,7 @@ azurerm for everything except the Flex apps, which use azapi because azurerm's F
 - **storage-host**: shared-key access off. One deployment blob container per function app. Stays public in every environment.
 - **servicebus**:
   - **Basic** tier, `disableLocalAuth: true`. Basic is pay-per-operation (~$0.05 per million), so it costs effectively $0. The code uses only peek-lock receive, complete, abandon, dead-letter and lock renewal, which Basic supports, along with the dead-letter queue and TTL. Basic lacks topics, sessions, duplicate detection and transactions, none of which the code uses. Basic caps TTL at 14 days.
-  - `pdf_queue` settings: lock `PT5M`, `maxDeliveryCount: 5`, as in `emulators/servicebus-config.json`.
+  - `pdf_queue` settings: lock `PT5M`, `maxDeliveryCount: 5`, as in the `servicebus-config` entry of `docker-compose.yml`.
   - **TTL `P1D` with `deadLetteringOnMessageExpiration: true`.** The emulator's `PT1H` would drop messages whenever the OCR job falls behind.
 - **functionapp** (×2):
   - Plan and instances: Flex plan (FC1). Instance memory 4096 MB for the producer (PDFium on 90 MB PDFs) and 2048 MB for the consumer. `maximumInstanceCount` is a variable.

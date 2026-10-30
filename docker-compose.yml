@@ -13,8 +13,9 @@ services:
 
   servicebus:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
-    volumes:
-      - ./emulators/servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json
+    configs:
+      - source: servicebus-config
+        target: /ServiceBus_Emulator/ConfigFiles/Config.json
     ports:
       - "5672:5672"
       - "5300:5300"
@@ -44,3 +45,38 @@ services:
     depends_on:
       - azurite
       - servicebus
+
+configs:
+  # Entities the Service Bus emulator creates on startup. pdf_queue matches the
+  # Terraform queue settings (lock PT5M, maxDeliveryCount 5).
+  servicebus-config:
+    content: |
+      {
+        "UserConfig": {
+          "Namespaces": [
+            {
+              "Name": "sbemulatorns",
+              "Queues": [
+                {
+                  "Name": "pdf_queue",
+                  "Properties": {
+                    "DeadLetteringOnMessageExpiration": false,
+                    "DefaultMessageTimeToLive": "PT1H",
+                    "DuplicateDetectionHistoryTimeWindow": "PT20S",
+                    "ForwardDeadLetteredMessagesTo": "",
+                    "ForwardTo": "",
+                    "LockDuration": "PT5M",
+                    "MaxDeliveryCount": 5,
+                    "RequiresDuplicateDetection": false,
+                    "RequiresSession": false
+                  }
+                }
+              ],
+              "Topics": []
+            }
+          ],
+          "Logging": {
+            "Type": "File"
+          }
+        }
+      }
