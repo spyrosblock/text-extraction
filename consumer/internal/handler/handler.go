@@ -37,7 +37,7 @@ const maxJobBytes = 1 << 12
 const APIKeyHeader = "X-API-Key"
 
 type textRequest struct {
-	ID string `json:"id"`
+	ID string `json:"request_id"`
 }
 
 type errorResponse struct {
@@ -53,7 +53,7 @@ type Handler struct {
 }
 
 // ServeHTTP returns the contract.Document stored for the id in the JSON
-// request body (POST /api/text, {"id": "<uuid>"}), to the API key in
+// request body (POST /api/text, {"request_id": "<uuid>"}), to the API key in
 // X-API-Key that submitted it.
 //
 // 401 when the key is missing or unknown, 400 when the body is not valid JSON
@@ -77,12 +77,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req textRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequestBytes))
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, `body must be {"id": "<uuid>"}`)
+		writeError(w, http.StatusBadRequest, `body must be {"request_id": "<uuid>"}`)
 		return
 	}
 	id, ok := parseID(req.ID)
 	if !ok {
-		writeError(w, http.StatusBadRequest, "id must be a uuid")
+		writeError(w, http.StatusBadRequest, "request_id must be a uuid")
 		return
 	}
 	log := slog.With("id", id, "keyId", keyID)

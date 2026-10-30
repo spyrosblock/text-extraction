@@ -57,7 +57,7 @@ func TestIntegration(t *testing.T) {
 
 	getAs := func(key, id string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(`{"id":"`+id+`"}`))
+		r := httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(`{"request_id":"`+id+`"}`))
 		r.Header.Set(handler.APIKeyHeader, key)
 		h.ServeHTTP(w, r)
 		return w

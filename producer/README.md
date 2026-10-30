@@ -15,9 +15,9 @@ a page that needs OCR (`CREDITS_PER_TEXT_PAGE`, `CREDITS_PER_OCR_PAGE`).
 3. Extracts the text layer of every page with PDFium (WebAssembly, no cgo).
 4. Charges the PDF's cost to the key. If the balance is lower, responds `402`
    `{"error","required","balance"}` and does nothing else.
-5. If every page has text → stores `{"id","pages":[{"page","text","confidence":"-"}]}` as `<id>.json` in `text-storage`.
+5. If every page has text → stores `{"request_id","pages":[{"page","text","confidence":"-"}]}` as `<id>.json` in `text-storage`.
    Otherwise → stores the PDF as `<id>.pdf` in `pdf-storage` and sends `{"id","blob"}` to `pdf_queue`.
-6. Responds `202 Accepted` with `{"id": "<uuid>", "status": "completed" | "queued", "credits": <charged>, "balance": <left>}`.
+6. Responds `202 Accepted` with `{"request_id": "<uuid>", "status": "completed" | "queued", "credits": <charged>, "balance": <left>}`.
 
 Errors: `400` (not a PDF / bad multipart), `401` (missing or unknown key), `402` (not enough
 credits), `413` (>90MB or >200 pages), `415` (content type), `422` (PDF can't be opened), `500`,

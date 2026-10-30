@@ -83,7 +83,7 @@ func (f *fakeBlobs) textOpened() bool {
 	return false
 }
 
-func idBody(id string) string { return `{"id":"` + id + `"}` }
+func idBody(id string) string { return `{"request_id":"` + id + `"}` }
 
 func storedDoc(t *testing.T) string {
 	t.Helper()
@@ -148,7 +148,7 @@ func TestInvalidID(t *testing.T) {
 		"no id":      `{}`,
 		"empty body": ``,
 		"not json":   id,
-		"too large":  `{"id":` + strings.Repeat(" ", maxRequestBytes) + `"` + id + `"}`,
+		"too large":  `{"request_id":` + strings.Repeat(" ", maxRequestBytes) + `"` + id + `"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			h, blobs := newHandler(nil)

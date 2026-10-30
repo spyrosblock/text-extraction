@@ -6,7 +6,7 @@ The request needs the API key that submitted the PDF in `X-API-Key`, and its bod
 returned by the producer:
 
 ```json
-{"id": "<uuid>"}
+{"request_id": "<uuid>"}
 ```
 
 The consumer checks that the key exists (`keys/<sha256 of key>.json` in the `billing` container)
@@ -14,7 +14,7 @@ and that the job was submitted with it (`jobs/<id>.json`, written by the produce
 `<id>.json` from `text-storage` and returns it as-is:
 
 ```json
-{"id": "<uuid>", "pages": [{"page": 1, "text": "...", "confidence": "-"}, {"page": 2, "text": "...", "confidence": 87.46}]}
+{"request_id": "<uuid>", "pages": [{"page": 1, "text": "...", "confidence": "-"}, {"page": 2, "text": "...", "confidence": 87.46}]}
 ```
 
 Every page of the PDF is listed. `confidence` is `"-"` when the text comes from the PDF's text
@@ -23,7 +23,7 @@ page carries whatever text was read, however low the confidence. `0` with empty 
 words were found or the page couldn't be OCRed.
 
 Responses: `200` with the document, `401` (missing or unknown key), `400` (body is not valid JSON
-or id is not a uuid), `404` (no text for the id: unknown, submitted with another key, OCR not
+or `request_id` is not a uuid), `404` (no text for the id: unknown, submitted with another key, OCR not
 finished yet, or expired), `500`. Another key's job is `404` rather than `403`, so ids can't be
 probed.
 
@@ -66,7 +66,7 @@ cp local.settings.example.json local.settings.json
 func start
 
 curl -X POST http://localhost:7072/api/text -H "X-API-Key: <key>" \
-  -H 'Content-Type: application/json' -d '{"id": "<id>"}'
+  -H 'Content-Type: application/json' -d '{"request_id": "<id>"}'
 ```
 
 ## Tests

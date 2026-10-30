@@ -95,10 +95,10 @@ wait_text() { # id, timeout seconds -> document
   body=$(mktemp)
   while ((SECONDS < deadline)); do
     code=$(curl -sS -o "$body" -w '%{http_code}' --max-time 60 -X POST -H "X-API-Key: $key" \
-      -H 'Content-Type: application/json' -d "{\"id\": \"$id\"}" "$consumer_url" || true)
+      -H 'Content-Type: application/json' -d "{\"request_id\": \"$id\"}" "$consumer_url" || true)
     case "$code" in
       200)
-        jq -e --arg id "$id" '.id == $id and ([.pages[].text | length] | add) > 0' "$body" >/dev/null ||
+        jq -e --arg id "$id" '.request_id == $id and ([.pages[].text | length] | add) > 0' "$body" >/dev/null ||
           fail "$id: unexpected document: $(head -c 500 "$body")"
         echo "$id: $(jq '.pages | length' "$body") pages, $(jq '[.pages[].text | length] | add' "$body") chars" >&2
         cat "$body"
@@ -119,7 +119,7 @@ check_credits() { # response, document
   # Pages from the text layer have confidence "-", OCRed pages a number.
   want=$(jq --argjson text "$TEXT_PAGE_CREDITS" --argjson ocr "$OCR_PAGE_CREDITS" \
     '[.pages[] | if .confidence == "-" then $text else $ocr end] | add' <<<"$2")
-  [[ "$charged" == "$want" ]] || fail "$(jq -r .id <<<"$1"): charged $charged credits, want $want"
+  [[ "$charged" == "$want" ]] || fail "$(jq -r .request_id <<<"$1"): charged $charged credits, want $want"
 }
 
 http_code() { # curl args -> HTTP status
@@ -139,8 +139,8 @@ mask "$empty_key"
 log "POST $producer_url"
 text_resp=$(extract "$TEXT_PDF" completed)
 ocr_resp=$(extract "$SCANNED_PDF" queued)
-text_id=$(jq -r .id <<<"$text_resp")
-ocr_id=$(jq -r .id <<<"$ocr_resp")
+text_id=$(jq -r .request_id <<<"$text_resp")
+ocr_id=$(jq -r .request_id <<<"$ocr_resp")
 balance=$(jq -r .balance <<<"$ocr_resp")
 want=$((2000 - $(jq -r .credits <<<"$text_resp") - $(jq -r .credits <<<"$ocr_resp")))
 ((balance == want)) || fail "balance $balance, want $want"
@@ -153,7 +153,7 @@ log "Rejections"
 code=$(http_code -H 'Content-Type: application/pdf' --data-binary "@$TEXT_PDF" "$producer_url")
 [[ "$code" == 401 ]] || fail "producer without a key: HTTP $code, want 401"
 code=$(http_code -X POST -H "X-API-Key: $empty_key" -H 'Content-Type: application/json' \
-  -d "{\"id\": \"$text_id\"}" "$consumer_url")
+  -d "{\"request_id\": \"$text_id\"}" "$consumer_url")
 [[ "$code" == 404 ]] || fail "consumer, another key's job: HTTP $code, want 404"
 code=$(http_code -H "X-API-Key: $empty_key" -H 'Content-Type: application/pdf' --data-binary "@$TEXT_PDF" "$producer_url")
 [[ "$code" == 402 ]] || fail "producer, key without credits: HTTP $code, want 402"

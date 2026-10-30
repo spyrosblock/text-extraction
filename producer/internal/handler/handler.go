@@ -55,7 +55,7 @@ type Queue interface {
 // consumer. Credits were charged for the PDF; Balance is what the key has
 // left.
 type Response struct {
-	ID      string `json:"id"`
+	ID      string `json:"request_id"`
 	Status  string `json:"status"`
 	Credits int64  `json:"credits"`
 	Balance int64  `json:"balance"`

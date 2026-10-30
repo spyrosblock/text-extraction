@@ -52,7 +52,7 @@ func (c *Confidence) UnmarshalJSON(b []byte) error {
 // Document is stored as "<id>.json" in the text_storage container and is
 // what the consumer returns to the user.
 type Document struct {
-	ID    string `json:"id"`
+	ID    string `json:"request_id"`
 	Pages []Page `json:"pages"`
 }
 

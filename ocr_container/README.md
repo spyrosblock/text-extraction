@@ -12,7 +12,7 @@ For each message `{"id","blob"}` sent by the producer it:
    confidence (0-100, 2 decimals) next to whatever text it read, however low. A page with no
    words found, or that can't be loaded, rendered or OCRed, has no text and confidence `0`. One
    bad page never fails the document.
-5. Stores `{"id","pages":[{"page","text","confidence"}]}` as `<id>.json` in `text-storage` (the
+5. Stores `{"request_id","pages":[{"page","text","confidence"}]}` as `<id>.json` in `text-storage` (the
    same format the producer writes), then deletes the PDF.
 
 Each job execution takes messages one at a time and exits once the queue has been idle for
@@ -68,9 +68,9 @@ run continuously (`IDLE_TIMEOUT=0`). With the producer and consumer running (`fu
 
 ```sh
 curl -H 'Content-Type: application/pdf' --data-binary @scanned.pdf http://localhost:7071/api/extract
-# {"id":"<id>","status":"queued"}
+# {"request_id":"<id>","status":"queued"}
 docker compose logs -f ocr
-curl -X POST http://localhost:7072/api/text -H 'Content-Type: application/json' -d '{"id": "<id>"}'
+curl -X POST http://localhost:7072/api/text -H 'Content-Type: application/json' -d '{"request_id": "<id>"}'
 ```
 
 ## Tests
