@@ -36,8 +36,8 @@ func TestExtract(t *testing.T) {
 				t.Errorf("page %d = %+v, want number %d containing %q", i, pages[i], i+1, want)
 			}
 		}
-		if !AllPagesHaveText(pages) {
-			t.Error("AllPagesHaveText = false, want true")
+		if n := PagesWithoutText(pages); n != 0 {
+			t.Errorf("PagesWithoutText = %d, want 0", n)
 		}
 	})
 
@@ -49,8 +49,8 @@ func TestExtract(t *testing.T) {
 		if len(pages) != 2 || strings.TrimSpace(pages[1].Text) != "" {
 			t.Fatalf("got %+v, want 2 pages with an empty second page", pages)
 		}
-		if AllPagesHaveText(pages) {
-			t.Error("AllPagesHaveText = true, want false")
+		if n := PagesWithoutText(pages); n != 1 {
+			t.Errorf("PagesWithoutText = %d, want 1", n)
 		}
 	})
 

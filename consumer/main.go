@@ -24,6 +24,7 @@ type config struct {
 	StorageConnString string
 
 	TextContainer    string
+	BillingContainer string
 	CreateContainers bool
 }
 
@@ -32,6 +33,7 @@ func loadConfig() (config, error) {
 		StorageAccountURL: os.Getenv("STORAGE_ACCOUNT_URL"),
 		StorageConnString: os.Getenv("STORAGE_CONNECTION_STRING"),
 		TextContainer:     envOr("TEXT_STORAGE_CONTAINER", "text-storage"),
+		BillingContainer:  envOr("BILLING_CONTAINER", "billing"),
 		CreateContainers:  os.Getenv("CREATE_CONTAINERS") == "true",
 	}
 	if c.StorageAccountURL == "" && c.StorageConnString == "" {
@@ -72,14 +74,18 @@ func run() error {
 		return err
 	}
 	if cfg.CreateContainers {
-		if err := blobs.EnsureContainer(context.Background(), cfg.TextContainer); err != nil {
-			return err
+		for _, c := range []string{cfg.TextContainer, cfg.BillingContainer} {
+			if err := blobs.EnsureContainer(context.Background(), c); err != nil {
+				return err
+			}
 		}
 	}
 
-	h := &handler.Handler{Blobs: blobs, TextContainer: cfg.TextContainer}
+	h := &handler.Handler{Blobs: blobs, TextContainer: cfg.TextContainer, BillingContainer: cfg.BillingContainer}
 
 	app := sdk.FunctionApp()
+	// Callers authenticate with their API key (X-API-Key), checked by the
+	// handler.
 	app.HTTP("text", h.ServeHTTP,
 		sdk.WithMethods("POST"),
 		sdk.WithAuth("anonymous"),

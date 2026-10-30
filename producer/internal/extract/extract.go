@@ -92,12 +92,14 @@ func (e *Extractor) Extract(ctx context.Context, pdf []byte) ([]contract.Page, e
 	return pages, nil
 }
 
-// AllPagesHaveText reports whether every page has non-whitespace text.
-func AllPagesHaveText(pages []contract.Page) bool {
+// PagesWithoutText returns the number of pages without non-whitespace text,
+// i.e. the pages that need OCR.
+func PagesWithoutText(pages []contract.Page) int {
+	n := 0
 	for _, p := range pages {
 		if strings.TrimSpace(p.Text) == "" {
-			return false
+			n++
 		}
 	}
-	return true
+	return n
 }

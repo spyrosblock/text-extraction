@@ -1,5 +1,6 @@
-# Data account: pdf-storage (PDFs waiting for OCR) and text-storage
-# (extracted text, deleted after a day). Identity-only; with private networking
+# Data account: pdf-storage (PDFs waiting for OCR), text-storage
+# (extracted text, deleted after a day) and billing (API keys and their
+# credits, plus a record per job deleted after a day). Identity-only; with private networking
 # on (prod), blob is reached through the private endpoint in the network module.
 variable "resource_group_name" {
   type = string
@@ -14,6 +15,9 @@ variable "pdf_container" {
   type = string
 }
 variable "text_container" {
+  type = string
+}
+variable "billing_container" {
   type = string
 }
 variable "admin_ip_rules" {
@@ -55,7 +59,7 @@ resource "azurerm_storage_account" "this" {
 }
 
 resource "azurerm_storage_container" "this" {
-  for_each              = toset([var.pdf_container, var.text_container])
+  for_each              = toset([var.pdf_container, var.text_container, var.billing_container])
   name                  = each.value
   storage_account_id    = azurerm_storage_account.this.id
   container_access_type = "private"
@@ -74,6 +78,22 @@ resource "azurerm_storage_management_policy" "this" {
     filters {
       blob_types   = ["blockBlob"]
       prefix_match = ["${var.text_container}/"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 1
+      }
+    }
+  }
+
+  # Job records only let the consumer check who owns a job's text, so they
+  # go with the text. Keys (billing/keys/) are kept.
+  rule {
+    name    = "expire-job-records"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${var.billing_container}/jobs/"]
     }
     actions {
       base_blob {

@@ -17,6 +17,11 @@ import (
 
 const id = "0b6f2c4e-8d1a-4f3b-9c2d-7e5a1b3c4d5f"
 
+const apiKey = "tx_test_key"
+
+// apiKeyID is sha256("tx_test_key"), as the producer computes it.
+const apiKeyID = "197f57455b15654af2963c7b62d520663eb95f3a1cd94676ffa8082b5dba2d4a"
+
 var now = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 type blob struct {
@@ -42,15 +47,40 @@ func (f *fakeBlobs) Open(_ context.Context, container, name string) (io.ReadClos
 	return io.NopCloser(strings.NewReader(b.data)), b.modified, nil
 }
 
+// newHandler serves blobs plus the billing blobs of apiKey and of a job
+// with the test id submitted with it.
 func newHandler(blobs map[string]blob) (*Handler, *fakeBlobs) {
-	b := &fakeBlobs{blobs: blobs}
-	return &Handler{Blobs: b, TextContainer: "text-storage", Now: func() time.Time { return now }}, b
+	all := map[string]blob{
+		"billing/keys/" + apiKeyID + ".json": {`{"name":"test","credits":10}`, now},
+		"billing/jobs/" + id + ".json":       {`{"keyId":"` + apiKeyID + `","pages":2}`, now},
+	}
+	for k, v := range blobs {
+		all[k] = v
+	}
+	b := &fakeBlobs{blobs: all}
+	return &Handler{Blobs: b, TextContainer: "text-storage", BillingContainer: "billing", Now: func() time.Time { return now }}, b
 }
 
-func post(h *Handler, body string) *httptest.ResponseRecorder {
+func postAs(h *Handler, key, body string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(body)))
+	r := httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(body))
+	if key != "" {
+		r.Header.Set(APIKeyHeader, key)
+	}
+	h.ServeHTTP(w, r)
 	return w
+}
+
+func post(h *Handler, body string) *httptest.ResponseRecorder { return postAs(h, apiKey, body) }
+
+// textOpened reports whether the handler read any text blob.
+func (f *fakeBlobs) textOpened() bool {
+	for _, o := range f.opened {
+		if strings.HasPrefix(o, "text-storage/") {
+			return true
+		}
+	}
+	return false
 }
 
 func idBody(id string) string { return `{"id":"` + id + `"}` }
@@ -87,8 +117,8 @@ func TestReturnsDocument(t *testing.T) {
 			if got.ID != id || len(got.Pages) != 2 || got.Pages[1].Text != "δύο" {
 				t.Errorf("doc = %+v", got)
 			}
-			if len(blobs.opened) != 1 || blobs.opened[0] != "text-storage/"+id+".json" {
-				t.Errorf("opened = %v", blobs.opened)
+			if want := []string{"billing/keys/" + apiKeyID + ".json", "billing/jobs/" + id + ".json", "text-storage/" + id + ".json"}; strings.Join(blobs.opened, " ") != strings.Join(want, " ") {
+				t.Errorf("opened = %v, want %v", blobs.opened, want)
 			}
 		})
 	}
@@ -125,7 +155,7 @@ func TestInvalidID(t *testing.T) {
 			if w := post(h, body); w.Code != http.StatusBadRequest {
 				t.Fatalf("got %d %s, want 400", w.Code, w.Body)
 			}
-			if len(blobs.opened) != 0 {
+			if blobs.textOpened() {
 				t.Errorf("opened = %v", blobs.opened)
 			}
 		})
@@ -137,5 +167,53 @@ func TestStorageError(t *testing.T) {
 	blobs.err = errors.New("storage down")
 	if w := post(h, idBody(id)); w.Code != http.StatusInternalServerError {
 		t.Fatalf("got %d %s, want 500", w.Code, w.Body)
+	}
+}
+
+func TestKeyID(t *testing.T) {
+	if got := keyID(apiKey); got != apiKeyID {
+		t.Fatalf("keyID = %s, want %s", got, apiKeyID)
+	}
+}
+
+func TestUnauthorized(t *testing.T) {
+	doc := storedDoc(t)
+	for name, key := range map[string]string{
+		"no key":      "",
+		"unknown key": "tx_test_other",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, blobs := newHandler(map[string]blob{"text-storage/" + id + ".json": {doc, now}})
+			if w := postAs(h, key, idBody(id)); w.Code != http.StatusUnauthorized {
+				t.Fatalf("got %d %s, want 401", w.Code, w.Body)
+			}
+			if blobs.textOpened() {
+				t.Errorf("opened = %v", blobs.opened)
+			}
+		})
+	}
+}
+
+func TestOtherKeysJob(t *testing.T) {
+	doc := storedDoc(t)
+	const otherKeyID = "1111111111111111111111111111111111111111111111111111111111111111"
+	for name, job := range map[string]*blob{
+		"job of another key": {`{"keyId":"` + otherKeyID + `"}`, now},
+		"no job record":      nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, blobs := newHandler(map[string]blob{"text-storage/" + id + ".json": {doc, now}})
+			if job != nil {
+				blobs.blobs["billing/jobs/"+id+".json"] = *job
+			} else {
+				delete(blobs.blobs, "billing/jobs/"+id+".json")
+			}
+			if w := post(h, idBody(id)); w.Code != http.StatusNotFound {
+				t.Fatalf("got %d %s, want 404", w.Code, w.Body)
+			}
+			if blobs.textOpened() {
+				t.Errorf("opened = %v", blobs.opened)
+			}
+		})
 	}
 }

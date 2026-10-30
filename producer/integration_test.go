@@ -8,8 +8,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 	"github.com/knowledge/text-extraction/producer/internal/azure"
 	"github.com/knowledge/text-extraction/producer/internal/contract"
+	"github.com/knowledge/text-extraction/producer/internal/credits"
 	"github.com/knowledge/text-extraction/producer/internal/extract"
 	"github.com/knowledge/text-extraction/producer/internal/handler"
 	"github.com/knowledge/text-extraction/producer/internal/pdftest"
@@ -38,7 +41,7 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []string{"pdf-storage", "text-storage"} {
+	for _, c := range []string{"pdf-storage", "text-storage", "billing"} {
 		if err := blobs.EnsureContainer(ctx, c); err != nil {
 			t.Fatal(err)
 		}
@@ -54,13 +57,21 @@ func TestIntegration(t *testing.T) {
 	}
 	defer extractor.Close()
 
-	h := &handler.Handler{Extractor: extractor, Blobs: blobs, Queue: queue, PDFContainer: "pdf-storage", TextContainer: "text-storage"}
+	store := &credits.Store{Blobs: blobs, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5}
+	key, keyID, _, err := store.Create(ctx, "integration", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Delete(context.WithoutCancel(ctx), keyID)
+
+	h := &handler.Handler{Extractor: extractor, Blobs: blobs, Queue: queue, Credits: store, PDFContainer: "pdf-storage", TextContainer: "text-storage"}
 	blobClient, _ := azblob.NewClientFromConnectionString(storageConn, nil)
 
 	post := func(pdf []byte) handler.Response {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodPost, "/api/extract", bytes.NewReader(pdf))
 		r.Header.Set("Content-Type", "application/pdf")
+		r.Header.Set(handler.APIKeyHeader, key)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		if w.Code != http.StatusAccepted {
@@ -84,8 +95,8 @@ func TestIntegration(t *testing.T) {
 
 	t.Run("text layer stored", func(t *testing.T) {
 		resp := post(pdftest.Build("integration text"))
-		if resp.Status != handler.StatusCompleted {
-			t.Fatalf("status = %s", resp.Status)
+		if resp.Status != handler.StatusCompleted || resp.Credits != 1 {
+			t.Fatalf("resp = %+v", resp)
 		}
 		var doc contract.Document
 		if err := json.Unmarshal(download("text-storage", contract.TextBlobName(resp.ID)), &doc); err != nil {
@@ -99,8 +110,8 @@ func TestIntegration(t *testing.T) {
 	t.Run("scanned pdf queued", func(t *testing.T) {
 		pdf := pdftest.Build("")
 		resp := post(pdf)
-		if resp.Status != handler.StatusQueued {
-			t.Fatalf("status = %s", resp.Status)
+		if resp.Status != handler.StatusQueued || resp.Credits != 5 || resp.Balance != 100-1-5 {
+			t.Fatalf("resp = %+v", resp)
 		}
 		if got := download("pdf-storage", contract.PDFBlobName(resp.ID)); !bytes.Equal(got, pdf) {
 			t.Fatal("stored pdf differs")
@@ -132,6 +143,54 @@ func TestIntegration(t *testing.T) {
 					return
 				}
 			}
+		}
+	})
+	t.Run("conditional upload", func(t *testing.T) {
+		name := "test/" + keyID + ".json"
+		defer blobs.Delete(context.WithoutCancel(ctx), "billing", name)
+		if err := blobs.UploadIf(ctx, "billing", name, []byte("1"), "application/json", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := blobs.UploadIf(ctx, "billing", name, []byte("2"), "application/json", ""); !errors.Is(err, azure.ErrConditionNotMet) {
+			t.Fatalf("create over existing blob: %v", err)
+		}
+		_, etag, err := blobs.Get(ctx, "billing", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := blobs.UploadIf(ctx, "billing", name, []byte("3"), "application/json", etag); err != nil {
+			t.Fatal(err)
+		}
+		if err := blobs.UploadIf(ctx, "billing", name, []byte("4"), "application/json", etag); !errors.Is(err, azure.ErrConditionNotMet) {
+			t.Fatalf("stale etag: %v", err)
+		}
+		if data, _, _ := blobs.Get(ctx, "billing", name); string(data) != "3" {
+			t.Fatalf("data = %s", data)
+		}
+	})
+
+	// Parallel charges conflict on the key blob's ETag and are retried, so
+	// none is lost. With 5 writers each needs at most 5 tries.
+	t.Run("parallel charges", func(t *testing.T) {
+		_, before, err := store.Lookup(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		for range 5 {
+			wg.Go(func() {
+				if _, err := store.Charge(ctx, keyID, 1); err != nil {
+					t.Error(err)
+				}
+			})
+		}
+		wg.Wait()
+		_, after, err := store.Lookup(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if after.Credits != before.Credits-5 {
+			t.Fatalf("balance %d -> %d, want 5 charged", before.Credits, after.Credits)
 		}
 	})
 }

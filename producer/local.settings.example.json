@@ -11,6 +11,10 @@
 
     "PDF_STORAGE_CONTAINER": "pdf-storage",
     "TEXT_STORAGE_CONTAINER": "text-storage",
-    "PDF_QUEUE_NAME": "pdf_queue"
+    "PDF_QUEUE_NAME": "pdf_queue",
+    "BILLING_CONTAINER": "billing",
+    "KEY_PREFIX": "tx_dev_",
+    "CREDITS_PER_TEXT_PAGE": "1",
+    "CREDITS_PER_OCR_PAGE": "5"
   }
 }

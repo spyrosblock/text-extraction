@@ -2,13 +2,15 @@
 
 Azure Functions app (native Go worker, Flex Consumption) exposing `POST /api/text`.
 
-The request body is the uuid returned by the producer:
+The request needs the API key that submitted the PDF in `X-API-Key`, and its body is the uuid
+returned by the producer:
 
 ```json
 {"id": "<uuid>"}
 ```
 
-The consumer reads
+The consumer checks that the key exists (`keys/<sha256 of key>.json` in the `billing` container)
+and that the job was submitted with it (`jobs/<id>.json`, written by the producer), then reads
 `<id>.json` from `text-storage` and returns it as-is:
 
 ```json
@@ -20,12 +22,14 @@ layer. For an OCRed page it is Tesseract's mean word confidence, a number from 0
 page carries whatever text was read, however low the confidence. `0` with empty text means no
 words were found or the page couldn't be OCRed.
 
-Responses: `200` with the document, `400` (body is not valid JSON or id is not a uuid), `404` (no text for the id: unknown,
-OCR not finished yet, or expired), `500`.
+Responses: `200` with the document, `401` (missing or unknown key), `400` (body is not valid JSON
+or id is not a uuid), `404` (no text for the id: unknown, submitted with another key, OCR not
+finished yet, or expired), `500`. Another key's job is `404` rather than `403`, so ids can't be
+probed.
 
-The endpoint is anonymous (no function key): the uuid is the access key. The producer generates
-random v4 uuids (122 random bits from `crypto/rand`), so ids can't be guessed, and anyone holding
-an id can read its text for a day.
+The endpoint is anonymous at the host level (no function key) and checks `X-API-Key` itself. Only
+the key that submitted a PDF can read its text, for a day. The key id is the hex sha256 of the key,
+computed the same way as the producer's `credits.KeyID`; keep the two in sync.
 
 ## Retention
 
@@ -45,10 +49,11 @@ either way.
 | `AZURE_CLIENT_ID` | | set when using a user-assigned identity |
 | `STORAGE_CONNECTION_STRING` | | local emulator only |
 | `TEXT_STORAGE_CONTAINER` | `text-storage` | |
-| `CREATE_CONTAINERS` | `false` | create the blob container on startup (local dev) |
+| `BILLING_CONTAINER` | `billing` | API keys and job owners, written by the producer |
+| `CREATE_CONTAINERS` | `false` | create the blob containers on startup (local dev) |
 
-Role assignment for the function app identity: **Storage Blob Data Reader** on the `text-storage`
-container ([`infra/modules/roles`](../infra/modules/roles/main.tf)).
+Role assignments for the function app identity: **Storage Blob Data Reader** on the `text-storage`
+and `billing` containers ([`infra/modules/roles`](../infra/modules/roles/main.tf)).
 
 ## Local development
 
@@ -60,7 +65,7 @@ docker compose up -d            # from the repo root
 cp local.settings.example.json local.settings.json
 func start
 
-curl -X POST http://localhost:7072/api/text \
+curl -X POST http://localhost:7072/api/text -H "X-API-Key: <key>" \
   -H 'Content-Type: application/json' -d '{"id": "<id>"}'
 ```
 

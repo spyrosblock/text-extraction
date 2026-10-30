@@ -17,6 +17,7 @@ import (
 	"github.com/azure/azure-functions-golang-worker/worker"
 
 	"github.com/knowledge/text-extraction/producer/internal/azure"
+	"github.com/knowledge/text-extraction/producer/internal/credits"
 	"github.com/knowledge/text-extraction/producer/internal/extract"
 	"github.com/knowledge/text-extraction/producer/internal/handler"
 )
@@ -31,9 +32,14 @@ type config struct {
 
 	PDFContainer     string
 	TextContainer    string
+	BillingContainer string
 	Queue            string
 	PDFiumWorkers    int
 	CreateContainers bool
+
+	KeyPrefix       string
+	TextPageCredits int64
+	OCRPageCredits  int64
 }
 
 func loadConfig() (config, error) {
@@ -44,19 +50,38 @@ func loadConfig() (config, error) {
 		ServiceBusConnString: os.Getenv("SERVICEBUS_CONNECTION_STRING"),
 		PDFContainer:         envOr("PDF_STORAGE_CONTAINER", "pdf-storage"),
 		TextContainer:        envOr("TEXT_STORAGE_CONTAINER", "text-storage"),
+		BillingContainer:     envOr("BILLING_CONTAINER", "billing"),
 		Queue:                envOr("PDF_QUEUE_NAME", "pdf_queue"),
 		PDFiumWorkers:        runtime.NumCPU(),
 		CreateContainers:     os.Getenv("CREATE_CONTAINERS") == "true",
+		KeyPrefix:            envOr("KEY_PREFIX", "tx_dev_"),
 	}
+	var errs []error
 	if v := os.Getenv("PDFIUM_WORKERS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 {
-			return c, fmt.Errorf("PDFIUM_WORKERS must be a positive integer, got %q", v)
+			errs = append(errs, fmt.Errorf("PDFIUM_WORKERS must be a positive integer, got %q", v))
 		}
 		c.PDFiumWorkers = n
 	}
+	for _, p := range []struct {
+		key string
+		def int64
+		dst *int64
+	}{
+		{"CREDITS_PER_TEXT_PAGE", 1, &c.TextPageCredits},
+		{"CREDITS_PER_OCR_PAGE", 5, &c.OCRPageCredits},
+	} {
+		*p.dst = p.def
+		if v := os.Getenv(p.key); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < 0 {
+				errs = append(errs, fmt.Errorf("%s must be a non-negative integer, got %q", p.key, v))
+			}
+			*p.dst = n
+		}
+	}
 
-	var errs []error
 	if c.StorageAccountURL == "" && c.StorageConnString == "" {
 		errs = append(errs, errors.New("STORAGE_ACCOUNT_URL is required"))
 	}
@@ -104,7 +129,7 @@ func run() error {
 		return err
 	}
 	if cfg.CreateContainers {
-		for _, c := range []string{cfg.PDFContainer, cfg.TextContainer} {
+		for _, c := range []string{cfg.PDFContainer, cfg.TextContainer, cfg.BillingContainer} {
 			if err := blobs.EnsureContainer(context.Background(), c); err != nil {
 				return err
 			}
@@ -121,18 +146,40 @@ func run() error {
 		return err
 	}
 
+	store := &credits.Store{
+		Blobs:           blobs,
+		Container:       cfg.BillingContainer,
+		KeyPrefix:       cfg.KeyPrefix,
+		TextPageCredits: cfg.TextPageCredits,
+		OCRPageCredits:  cfg.OCRPageCredits,
+	}
 	h := &handler.Handler{
 		Extractor:     extractor,
 		Blobs:         blobs,
 		Queue:         queue,
+		Credits:       store,
 		PDFContainer:  cfg.PDFContainer,
 		TextContainer: cfg.TextContainer,
 	}
+	admin := &handler.Admin{Credits: store}
 
 	app := sdk.FunctionApp()
+	// Callers authenticate with their own API key (X-API-Key), checked by
+	// the handler.
 	app.HTTP("extract", h.ServeHTTP,
 		sdk.WithMethods("POST"),
-		sdk.WithAuth("function"),
+		sdk.WithAuth("anonymous"),
+	)
+	// Master key only. The host reserves routes starting with "admin".
+	app.HTTP("manage-keys", admin.Keys,
+		sdk.WithMethods("GET", "POST", "DELETE"),
+		sdk.WithAuth("admin"),
+		sdk.WithRoute("manage/keys"),
+	)
+	app.HTTP("manage-credits", admin.Balance,
+		sdk.WithMethods("PUT", "POST"),
+		sdk.WithAuth("admin"),
+		sdk.WithRoute("manage/credits"),
 	)
 	worker.Start(app, sdk.WithLifecycleHook(shutdown(func(ctx context.Context) error {
 		return errors.Join(queue.Close(ctx), extractor.Close())

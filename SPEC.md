@@ -7,6 +7,7 @@ This is an application with input a pdf file and output the text of the pdf file
 - pdf-storage (Blob storage container)
 - ocr_container (Azure container app job)
 - text-storage (Blob storage container)
+- billing (Blob storage container: API keys, credit balances, job owners)
 - consumer (Azure function app)
 
 ### Code components
@@ -21,6 +22,9 @@ producer, consumer and ocr_container are all written in Go. Go do not need a cus
 The ocr_container has threads that perform ocr in parallel in the pages of the pdfs. Every page is returned with its text and a confidence: the ocr mean word confidence (0-100), or `-` for a page that came from the text layer. Text is returned however low the confidence. A page that fails never fails the whole document. Tesseract with eng+ell languages.
 
 ### API contract
+Every producer and consumer request carries an API key in `X-API-Key`; missing or unknown keys get 401. Keys are issued by hand, each with its own credit balance set by hand, through admin endpoints on the producer that only the master key can call (`/api/manage/keys`, `/api/manage/credits`, wrapped by `infra/keys.sh`).
+Credits are charged at submission: 1 per page with a text layer, 5 per page that needs OCR. A key without enough credits gets 402 `{"error","required","balance"}`. The producer's response includes `credits` (charged) and `balance`. Credits are never refunded.
+The consumer only returns a job's text to the key that submitted it (404 otherwise).
 Producer pdf size limit 90MB
 Producer pdf page limit 200 pages
 Consumer output format: json with per-page text. 

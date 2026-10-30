@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -32,25 +34,42 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := blobs.EnsureContainer(ctx, "text-storage"); err != nil {
-		t.Fatal(err)
-	}
-	h := &handler.Handler{Blobs: blobs, TextContainer: "text-storage"}
-
-	get := func(id string) *httptest.ResponseRecorder {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(`{"id":"`+id+`"}`)))
-		return w
-	}
-
-	t.Run("stored text returned", func(t *testing.T) {
-		id := uuid.NewString()
-		body, _ := json.Marshal(contract.Document{ID: id, Pages: []contract.Page{{Number: 1, Text: "integration"}}})
-		client, _ := azblob.NewClientFromConnectionString(storageConn, nil)
-		if _, err := client.UploadBuffer(ctx, "text-storage", contract.TextBlobName(id), body, nil); err != nil {
+	for _, c := range []string{"text-storage", "billing"} {
+		if err := blobs.EnsureContainer(ctx, c); err != nil {
 			t.Fatal(err)
 		}
+	}
+	h := &handler.Handler{Blobs: blobs, TextContainer: "text-storage", BillingContainer: "billing"}
+	client, _ := azblob.NewClientFromConnectionString(storageConn, nil)
+	upload := func(container, name string, body []byte) {
+		t.Helper()
+		if _, err := client.UploadBuffer(ctx, container, name, body, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 
+	// A key as the producer stores it: keys/<sha256 of the key>.json.
+	key := "tx_test_" + uuid.NewString()
+	sum := sha256.Sum256([]byte(key))
+	keyID := hex.EncodeToString(sum[:])
+	upload("billing", "keys/"+keyID+".json", []byte(`{"name":"integration","credits":1}`))
+	defer client.DeleteBlob(context.WithoutCancel(ctx), "billing", "keys/"+keyID+".json", nil)
+
+	getAs := func(key, id string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, "/api/text", strings.NewReader(`{"id":"`+id+`"}`))
+		r.Header.Set(handler.APIKeyHeader, key)
+		h.ServeHTTP(w, r)
+		return w
+	}
+	get := func(id string) *httptest.ResponseRecorder { return getAs(key, id) }
+
+	id := uuid.NewString()
+	body, _ := json.Marshal(contract.Document{ID: id, Pages: []contract.Page{{Number: 1, Text: "integration"}}})
+	upload("text-storage", contract.TextBlobName(id), body)
+	upload("billing", "jobs/"+id+".json", []byte(`{"keyId":"`+keyID+`"}`))
+
+	t.Run("stored text returned", func(t *testing.T) {
 		w := get(id)
 		if w.Code != http.StatusOK {
 			t.Fatalf("got %d %s", w.Code, w.Body)
@@ -67,6 +86,12 @@ func TestIntegration(t *testing.T) {
 	t.Run("unknown id", func(t *testing.T) {
 		if w := get(uuid.NewString()); w.Code != http.StatusNotFound {
 			t.Fatalf("got %d %s, want 404", w.Code, w.Body)
+		}
+	})
+
+	t.Run("unknown key", func(t *testing.T) {
+		if w := getAs("tx_test_unknown", id); w.Code != http.StatusUnauthorized {
+			t.Fatalf("got %d %s, want 401", w.Code, w.Body)
 		}
 	})
 }

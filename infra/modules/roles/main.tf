@@ -5,6 +5,9 @@ variable "data_storage_id" {
 variable "text_container_id" {
   type = string
 }
+variable "billing_container_id" {
+  type = string
+}
 variable "host_storage_id" {
   type = string
 }
@@ -33,12 +36,14 @@ locals {
   roles = jsondecode(file("${path.module}/roles.json"))
 
   assignments = {
-    # producer: writes text or PDFs, sends OCR requests.
+    # producer: writes text or PDFs, sends OCR requests, keeps the API keys
+    # and their credits in the billing container.
     producer-data  = { principal = "producer", role = "blob_data_contributor", scope = var.data_storage_id }
     producer-queue = { principal = "producer", role = "service_bus_data_sender", scope = var.queue_id }
 
-    # consumer: reads text only.
-    consumer-text = { principal = "consumer", role = "blob_data_reader", scope = var.text_container_id }
+    # consumer: reads text, and API keys and job owners from billing.
+    consumer-text    = { principal = "consumer", role = "blob_data_reader", scope = var.text_container_id }
+    consumer-billing = { principal = "consumer", role = "blob_data_reader", scope = var.billing_container_id }
 
     # ocr: reads and deletes PDFs, writes text, receives from the queue. The
     # KEDA scaler reads the queue's message count, which needs Data Owner.

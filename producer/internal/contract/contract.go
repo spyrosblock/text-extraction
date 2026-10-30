@@ -1,5 +1,10 @@
 // Package contract holds the payloads exchanged between producer,
 // ocr_container and consumer. Keep it in sync across components.
+//
+// The billing blobs are shared by the producer and the consumer only: the
+// API key id (hex sha256 of the key: credits.KeyID in the producer, keyID in
+// the consumer's handler), keys/<key id>.json and jobs/<id>.json {"keyId"}.
+// Keep those in sync too.
 package contract
 
 import (

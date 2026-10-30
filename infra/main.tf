@@ -10,9 +10,10 @@ locals {
   suffix   = substr(sha256(lower(data.azurerm_resource_group.this.id)), 0, 6)
   tags     = { app = "text-extraction", env = var.env, iac = "terraform" }
 
-  pdf_container  = "pdf-storage"
-  text_container = "text-storage"
-  queue_name     = "pdf_queue"
+  pdf_container     = "pdf-storage"
+  text_container    = "text-storage"
+  billing_container = "billing"
+  queue_name        = "pdf_queue"
 
   names = {
     workspace      = "log-textextract-${var.env}"
@@ -63,6 +64,7 @@ module "data_storage" {
   name                      = local.names.data_storage
   pdf_container             = local.pdf_container
   text_container            = local.text_container
+  billing_container         = local.billing_container
   admin_ip_rules            = var.admin_ip_rules
   enable_private_networking = var.enable_private_networking
   tags                      = local.tags
@@ -98,13 +100,14 @@ module "network" {
 }
 
 module "roles" {
-  source            = "./modules/roles"
-  data_storage_id   = module.data_storage.id
-  text_container_id = module.data_storage.container_ids[local.text_container]
-  host_storage_id   = module.host_storage.id
-  queue_id          = module.service_bus.queue_id
-  app_insights_id   = module.monitoring.app_insights_id
-  principal_ids     = { for k, v in module.identities.identities : k => v.principal_id }
+  source               = "./modules/roles"
+  data_storage_id      = module.data_storage.id
+  text_container_id    = module.data_storage.container_ids[local.text_container]
+  billing_container_id = module.data_storage.container_ids[local.billing_container]
+  host_storage_id      = module.host_storage.id
+  queue_id             = module.service_bus.queue_id
+  app_insights_id      = module.monitoring.app_insights_id
+  principal_ids        = { for k, v in module.identities.identities : k => v.principal_id }
 }
 
 locals {
@@ -134,7 +137,11 @@ module "producer" {
     SERVICEBUS_NAMESPACE   = "${module.service_bus.name}.servicebus.windows.net"
     PDF_STORAGE_CONTAINER  = local.pdf_container
     TEXT_STORAGE_CONTAINER = local.text_container
+    BILLING_CONTAINER      = local.billing_container
     PDF_QUEUE_NAME         = local.queue_name
+    KEY_PREFIX             = var.key_prefix
+    CREDITS_PER_TEXT_PAGE  = tostring(var.credits_per_text_page)
+    CREDITS_PER_OCR_PAGE   = tostring(var.credits_per_ocr_page)
   }
   tags       = local.tags
   depends_on = [module.roles]
@@ -158,6 +165,7 @@ module "consumer" {
   app_settings = {
     STORAGE_ACCOUNT_URL    = local.storage_account_url
     TEXT_STORAGE_CONTAINER = local.text_container
+    BILLING_CONTAINER      = local.billing_container
   }
   tags       = local.tags
   depends_on = [module.roles]

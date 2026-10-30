@@ -62,3 +62,32 @@ variable "ocr_max_executions" {
   type    = number
   default = 10
 }
+
+variable "key_prefix" {
+  description = "Start of every API key issued in this environment, e.g. tx_prod_."
+  type        = string
+  validation {
+    condition     = can(regex("^[a-z0-9_]+_$", var.key_prefix))
+    error_message = "key_prefix must be lowercase letters, digits and underscores, ending in _."
+  }
+}
+
+variable "credits_per_text_page" {
+  description = "Credits charged for a page with a text layer."
+  type        = number
+  default     = 1
+  validation {
+    condition     = var.credits_per_text_page >= 0 && floor(var.credits_per_text_page) == var.credits_per_text_page
+    error_message = "credits_per_text_page must be a non-negative integer."
+  }
+}
+
+variable "credits_per_ocr_page" {
+  description = "Credits charged for a page that needs OCR."
+  type        = number
+  default     = 5
+  validation {
+    condition     = var.credits_per_ocr_page >= 0 && floor(var.credits_per_ocr_page) == var.credits_per_ocr_page
+    error_message = "credits_per_ocr_page must be a non-negative integer."
+  }
+}

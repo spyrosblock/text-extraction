@@ -10,8 +10,11 @@ northeurope). The infrastructure is Terraform in [`infra/`](infra) (azurerm, plu
 azapi for the Function apps, since azurerm's Flex Consumption resource doesn't take the Go runtime).
 Its state is in the storage account the bootstrap creates in `rg-textextract-tfstate`, one
 container per environment. The apps use managed identities only. In prod the data storage account
-(`pdf-storage`, `text-storage`) is reachable only through a private endpoint in the environment's
+(`pdf-storage`, `text-storage`, `billing`) is reachable only through a private endpoint in the environment's
 VNet; staging has no VNet and keeps the account public (still identity-only).
+
+Callers need an API key with credits; issue them with [`infra/keys.sh`](infra/keys.sh) (see
+[producer](producer/README.md#api-keys-and-credits)).
 
 ### Bootstrap (once)
 
