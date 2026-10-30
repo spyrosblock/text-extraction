@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/knowledge/text-extraction/producer/internal/blobtest"
-	"github.com/knowledge/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/producer/internal/blobtest"
+	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 )
 
 func newAdmin() (*Admin, *blobtest.Fake) {

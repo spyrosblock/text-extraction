@@ -1,4 +1,4 @@
-module github.com/knowledge/text-extraction/consumer
+module github.com/spyrosblock/text-extraction/consumer
 
 go 1.26.0
 

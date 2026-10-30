@@ -18,11 +18,11 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/azure"
-	"github.com/knowledge/text-extraction/ocr_container/internal/job"
-	"github.com/knowledge/text-extraction/ocr_container/internal/ocr"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdf"
-	"github.com/knowledge/text-extraction/ocr_container/internal/processor"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/azure"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/job"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/ocr"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdf"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/processor"
 )
 
 type config struct {

@@ -1,4 +1,4 @@
-module github.com/knowledge/text-extraction/producer
+module github.com/spyrosblock/text-extraction/producer
 
 go 1.26.0
 

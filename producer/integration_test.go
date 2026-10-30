@@ -18,12 +18,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 
-	"github.com/knowledge/text-extraction/producer/internal/azure"
-	"github.com/knowledge/text-extraction/producer/internal/contract"
-	"github.com/knowledge/text-extraction/producer/internal/credits"
-	"github.com/knowledge/text-extraction/producer/internal/extract"
-	"github.com/knowledge/text-extraction/producer/internal/handler"
-	"github.com/knowledge/text-extraction/producer/internal/pdftest"
+	"github.com/spyrosblock/text-extraction/producer/internal/azure"
+	"github.com/spyrosblock/text-extraction/producer/internal/contract"
+	"github.com/spyrosblock/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/producer/internal/extract"
+	"github.com/spyrosblock/text-extraction/producer/internal/handler"
+	"github.com/spyrosblock/text-extraction/producer/internal/pdftest"
 )
 
 const (

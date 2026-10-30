@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/knowledge/text-extraction/producer/internal/pdftest"
+	"github.com/spyrosblock/text-extraction/producer/internal/pdftest"
 )
 
 func newExtractor(t *testing.T) *Extractor {

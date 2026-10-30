@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/ocr"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdftest"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/ocr"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdftest"
 )
 
 func open(t *testing.T, data []byte) *Document {

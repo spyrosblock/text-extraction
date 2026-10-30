@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/knowledge/text-extraction/consumer/internal/azure"
-	"github.com/knowledge/text-extraction/consumer/internal/contract"
+	"github.com/spyrosblock/text-extraction/consumer/internal/azure"
+	"github.com/spyrosblock/text-extraction/consumer/internal/contract"
 )
 
 // Retention is how long extracted text is served. The text_storage lifecycle

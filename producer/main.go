@@ -16,10 +16,10 @@ import (
 	"github.com/azure/azure-functions-golang-worker/sdk"
 	"github.com/azure/azure-functions-golang-worker/worker"
 
-	"github.com/knowledge/text-extraction/producer/internal/azure"
-	"github.com/knowledge/text-extraction/producer/internal/credits"
-	"github.com/knowledge/text-extraction/producer/internal/extract"
-	"github.com/knowledge/text-extraction/producer/internal/handler"
+	"github.com/spyrosblock/text-extraction/producer/internal/azure"
+	"github.com/spyrosblock/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/producer/internal/extract"
+	"github.com/spyrosblock/text-extraction/producer/internal/handler"
 )
 
 type config struct {

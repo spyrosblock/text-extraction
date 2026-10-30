@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/knowledge/text-extraction/producer/internal/azure"
+	"github.com/spyrosblock/text-extraction/producer/internal/azure"
 )
 
 // Fake keeps blobs in memory under "container/name". It is safe for

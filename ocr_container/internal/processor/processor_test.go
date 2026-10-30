@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/azure"
-	"github.com/knowledge/text-extraction/ocr_container/internal/contract"
-	"github.com/knowledge/text-extraction/ocr_container/internal/ocr"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdf"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/azure"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/contract"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/ocr"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdf"
 )
 
 const id = "0b9c3c1e-6a53-4d3e-9d51-2f4c8f0a1b2c"

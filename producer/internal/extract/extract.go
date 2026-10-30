@@ -12,7 +12,7 @@ import (
 	"github.com/klippa-app/go-pdfium/requests"
 	"github.com/klippa-app/go-pdfium/webassembly"
 
-	"github.com/knowledge/text-extraction/producer/internal/contract"
+	"github.com/spyrosblock/text-extraction/producer/internal/contract"
 )
 
 // ErrInvalidPDF is returned when the input cannot be opened as a PDF

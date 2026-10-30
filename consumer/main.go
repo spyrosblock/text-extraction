@@ -13,8 +13,8 @@ import (
 	"github.com/azure/azure-functions-golang-worker/sdk"
 	"github.com/azure/azure-functions-golang-worker/worker"
 
-	"github.com/knowledge/text-extraction/consumer/internal/azure"
-	"github.com/knowledge/text-extraction/consumer/internal/handler"
+	"github.com/spyrosblock/text-extraction/consumer/internal/azure"
+	"github.com/spyrosblock/text-extraction/consumer/internal/handler"
 )
 
 type config struct {

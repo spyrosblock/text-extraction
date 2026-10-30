@@ -1,4 +1,4 @@
-module github.com/knowledge/text-extraction/ocr_container
+module github.com/spyrosblock/text-extraction/ocr_container
 
 go 1.26.0
 

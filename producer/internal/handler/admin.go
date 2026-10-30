@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/knowledge/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 )
 
 // maxAdminBody bounds admin request bodies.

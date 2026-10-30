@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/knowledge/text-extraction/producer/internal/azure"
+	"github.com/spyrosblock/text-extraction/producer/internal/azure"
 )
 
 var (

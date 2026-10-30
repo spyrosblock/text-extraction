@@ -14,13 +14,13 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/google/uuid"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/azure"
-	"github.com/knowledge/text-extraction/ocr_container/internal/contract"
-	"github.com/knowledge/text-extraction/ocr_container/internal/job"
-	"github.com/knowledge/text-extraction/ocr_container/internal/ocr"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdf"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdftest"
-	"github.com/knowledge/text-extraction/ocr_container/internal/processor"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/azure"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/contract"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/job"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/ocr"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdf"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdftest"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/processor"
 )
 
 const (

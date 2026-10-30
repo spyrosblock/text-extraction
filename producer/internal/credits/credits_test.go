@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/knowledge/text-extraction/producer/internal/blobtest"
+	"github.com/spyrosblock/text-extraction/producer/internal/blobtest"
 )
 
 var ctx = context.Background()

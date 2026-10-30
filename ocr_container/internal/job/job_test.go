@@ -10,8 +10,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/contract"
-	"github.com/knowledge/text-extraction/ocr_container/internal/processor"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/contract"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/processor"
 )
 
 type fakeReceiver struct {

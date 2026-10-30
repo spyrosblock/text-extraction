@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/knowledge/text-extraction/consumer/internal/azure"
-	"github.com/knowledge/text-extraction/consumer/internal/contract"
+	"github.com/spyrosblock/text-extraction/consumer/internal/azure"
+	"github.com/spyrosblock/text-extraction/consumer/internal/contract"
 )
 
 const id = "0b6f2c4e-8d1a-4f3b-9c2d-7e5a1b3c4d5f"

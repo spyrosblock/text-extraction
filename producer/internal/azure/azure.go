@@ -18,7 +18,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 
-	"github.com/knowledge/text-extraction/producer/internal/contract"
+	"github.com/spyrosblock/text-extraction/producer/internal/contract"
 )
 
 // Credential returns the credential used when no connection string is set.

@@ -15,9 +15,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/knowledge/text-extraction/producer/internal/contract"
-	"github.com/knowledge/text-extraction/producer/internal/credits"
-	"github.com/knowledge/text-extraction/producer/internal/extract"
+	"github.com/spyrosblock/text-extraction/producer/internal/contract"
+	"github.com/spyrosblock/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/producer/internal/extract"
 )
 
 // MaxPDFSize is the largest PDF the producer accepts (90MB).

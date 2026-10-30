@@ -15,10 +15,10 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/knowledge/text-extraction/ocr_container/internal/azure"
-	"github.com/knowledge/text-extraction/ocr_container/internal/contract"
-	"github.com/knowledge/text-extraction/ocr_container/internal/ocr"
-	"github.com/knowledge/text-extraction/ocr_container/internal/pdf"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/azure"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/contract"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/ocr"
+	"github.com/spyrosblock/text-extraction/ocr_container/internal/pdf"
 )
 
 // ErrPermanent marks failures that retrying won't fix (bad message, missing

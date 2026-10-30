@@ -18,9 +18,9 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/google/uuid"
 
-	"github.com/knowledge/text-extraction/consumer/internal/azure"
-	"github.com/knowledge/text-extraction/consumer/internal/contract"
-	"github.com/knowledge/text-extraction/consumer/internal/handler"
+	"github.com/spyrosblock/text-extraction/consumer/internal/azure"
+	"github.com/spyrosblock/text-extraction/consumer/internal/contract"
+	"github.com/spyrosblock/text-extraction/consumer/internal/handler"
 )
 
 // The Go SDK doesn't understand UseDevelopmentStorage=true.
