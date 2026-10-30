@@ -70,23 +70,23 @@ func TestAdminListSetAddRevoke(t *testing.T) {
 		t.Error("list shows the key")
 	}
 
-	if w := call(a.Balance, http.MethodPut, "/api/manage/credits?id="+id, `{"credits":500}`); w.Code != http.StatusOK || balanceOf() != 500 {
+	if w := call(a.Balance, http.MethodPut, "/api/manage/credits?key_id="+id, `{"credits":500}`); w.Code != http.StatusOK || balanceOf() != 500 {
 		t.Fatalf("set: %d %s", w.Code, w.Body)
 	}
-	if w := call(a.Balance, http.MethodPost, "/api/manage/credits?id="+id, `{"delta":-120}`); w.Code != http.StatusOK || balanceOf() != 380 {
+	if w := call(a.Balance, http.MethodPost, "/api/manage/credits?key_id="+id, `{"delta":-120}`); w.Code != http.StatusOK || balanceOf() != 380 {
 		t.Fatalf("add: %d %s", w.Code, w.Body)
 	}
 
-	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?id="+id, ""); w.Code != http.StatusNoContent {
+	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?key_id="+id, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("revoke: %d %s", w.Code, w.Body)
 	}
 	if _, _, err := a.Credits.Lookup(context.Background(), key); err != credits.ErrUnknownKey {
 		t.Errorf("Lookup after revoke err = %v", err)
 	}
-	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?id="+id, ""); w.Code != http.StatusNotFound {
+	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?key_id="+id, ""); w.Code != http.StatusNotFound {
 		t.Errorf("second revoke: %d", w.Code)
 	}
-	if w := call(a.Balance, http.MethodPut, "/api/manage/credits?id="+id, `{"credits":1}`); w.Code != http.StatusNotFound {
+	if w := call(a.Balance, http.MethodPut, "/api/manage/credits?key_id="+id, `{"credits":1}`); w.Code != http.StatusNotFound {
 		t.Errorf("set on revoked key: %d", w.Code)
 	}
 }
@@ -106,10 +106,10 @@ func TestAdminBadRequests(t *testing.T) {
 		{"create not json", a.Keys, http.MethodPost, "/api/manage/keys", `name=x`},
 		{"revoke without id", a.Keys, http.MethodDelete, "/api/manage/keys", ``},
 		{"revoke bad id", a.Keys, http.MethodDelete, "/api/manage/keys?id=../x", ``},
-		{"set without credits", a.Balance, http.MethodPut, "/api/manage/credits?id=" + id, `{"delta":1}`},
-		{"set negative", a.Balance, http.MethodPut, "/api/manage/credits?id=" + id, `{"credits":-1}`},
-		{"add without delta", a.Balance, http.MethodPost, "/api/manage/credits?id=" + id, `{"credits":1}`},
-		{"credits bad id", a.Balance, http.MethodPut, "/api/manage/credits?id=" + strings.ToUpper(id), `{"credits":1}`},
+		{"set without credits", a.Balance, http.MethodPut, "/api/manage/credits?key_id=" + id, `{"delta":1}`},
+		{"set negative", a.Balance, http.MethodPut, "/api/manage/credits?key_id=" + id, `{"credits":-1}`},
+		{"add without delta", a.Balance, http.MethodPost, "/api/manage/credits?key_id=" + id, `{"credits":1}`},
+		{"credits bad id", a.Balance, http.MethodPut, "/api/manage/credits?key_id=" + strings.ToUpper(id), `{"credits":1}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

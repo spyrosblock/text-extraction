@@ -59,7 +59,7 @@ type Key struct {
 
 // ListedKey is a Key with its id, as returned by List.
 type ListedKey struct {
-	ID string `json:"id"`
+	ID string `json:"key_id"`
 	Key
 }
 

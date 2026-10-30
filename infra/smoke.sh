@@ -65,7 +65,7 @@ revoke_keys() {
   local id
   for id in "${key_ids[@]}"; do
     curl -sS -o /dev/null --fail --max-time 60 -X DELETE -H "x-functions-key: $master" \
-      "$manage_url/keys?id=$id" || echo "could not revoke key $id" >&2
+      "$manage_url/keys?key_id=$id" || echo "could not revoke key $id" >&2
   done
 }
 trap revoke_keys EXIT
@@ -76,7 +76,7 @@ create_key() { # name, credits -> "key id"
   resp=$(curl -sS --fail-with-body --retry 6 --retry-delay 10 --retry-all-errors --max-time 60 \
     -X POST -H "x-functions-key: $master" -H 'Content-Type: application/json' \
     -d "{\"name\": \"$1\", \"credits\": $2}" "$manage_url/keys") || fail "create key: $resp"
-  jq -r '"\(.key) \(.id)"' <<<"$resp"
+  jq -r '"\(.key) \(.key_id)"' <<<"$resp"
 }
 
 extract() { # pdf, expected status -> response

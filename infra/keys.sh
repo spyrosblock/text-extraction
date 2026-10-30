@@ -49,16 +49,16 @@ case "$cmd" in
   set)
     (($# == 2)) || usage
     int "$2"
-    call PUT "credits?id=$1" "{\"credits\": $2}" | jq .
+    call PUT "credits?key_id=$1" "{\"credits\": $2}" | jq .
     ;;
   add)
     (($# == 2)) || usage
     int "$2"
-    call POST "credits?id=$1" "{\"delta\": $2}" | jq .
+    call POST "credits?key_id=$1" "{\"delta\": $2}" | jq .
     ;;
   revoke)
     (($# == 1)) || usage
-    call DELETE "keys?id=$1"
+    call DELETE "keys?key_id=$1"
     echo "revoked $1"
     ;;
   *) usage ;;

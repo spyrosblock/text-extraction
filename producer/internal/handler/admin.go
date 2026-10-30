@@ -20,7 +20,7 @@ type Admin struct {
 
 type keyResponse struct {
 	Key     string `json:"key"`
-	ID      string `json:"id"`
+	ID      string `json:"key_id"`
 	Name    string `json:"name"`
 	Credits int64  `json:"credits"`
 }
@@ -29,7 +29,7 @@ type keyResponse struct {
 //
 //	POST   {"name","credits"}  create a key; the response is the only time the key is shown
 //	GET                        list the keys
-//	DELETE ?id=<key id>        revoke a key
+//	DELETE ?key_id=<key id>    revoke a key
 func (a *Admin) Keys(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	switch r.Method {
@@ -78,7 +78,7 @@ func (a *Admin) Keys(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Balance serves /api/manage/credits?id=<key id>:
+// Balance serves /api/manage/credits?key_id=<key id>:
 //
 //	PUT  {"credits"}  set the balance
 //	POST {"delta"}    add to the balance (take from it if negative)
@@ -142,9 +142,9 @@ func (a *Admin) fail(w http.ResponseWriter, r *http.Request, action string, err 
 }
 
 func queryID(w http.ResponseWriter, r *http.Request) (string, bool) {
-	id := r.URL.Query().Get("id")
+	id := r.URL.Query().Get("key_id")
 	if !credits.ValidID(id) {
-		writeError(w, http.StatusBadRequest, "id must be a key id (64 lowercase hex characters)")
+		writeError(w, http.StatusBadRequest, "key_id must be a key id (64 lowercase hex characters)")
 		return "", false
 	}
 	return id, true

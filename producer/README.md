@@ -48,11 +48,11 @@ reserves routes starting with `admin`, hence `manage`:
 
 | Endpoint | Does |
 | --- | --- |
-| `POST /api/manage/keys {"name","credits"}` | Creates a key: `201 {"key","id","name","credits"}`. The key is only shown here. |
-| `GET /api/manage/keys` | Lists `[{"id","name","credits","createdAt"}]`. |
-| `PUT /api/manage/credits?id=<id> {"credits"}` | Sets the balance. |
-| `POST /api/manage/credits?id=<id> {"delta"}` | Adds to the balance (takes from it if negative). |
-| `DELETE /api/manage/keys?id=<id>` | Revokes the key (`204`). |
+| `POST /api/manage/keys {"name","credits"}` | Creates a key: `201 {"key","key_id","name","credits"}`. The key is only shown here. |
+| `GET /api/manage/keys` | Lists `[{"key_id","name","credits","createdAt"}]`. |
+| `PUT /api/manage/credits?key_id=<key_id> {"credits"}` | Sets the balance. |
+| `POST /api/manage/credits?key_id=<key_id> {"delta"}` | Adds to the balance (takes from it if negative). |
+| `DELETE /api/manage/keys?key_id=<key_id>` | Revokes the key (`204`). |
 
 [`infra/keys.sh`](../infra/keys.sh) wraps them:
 
