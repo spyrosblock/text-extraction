@@ -170,7 +170,7 @@ func run() error {
 		sdk.WithMethods("POST"),
 		sdk.WithAuth("anonymous"),
 	)
-	// Master key only. The host reserves routes starting with "admin".
+	// Master key only.
 	app.HTTP("manage-keys", admin.Keys,
 		sdk.WithMethods("GET", "POST", "DELETE"),
 		sdk.WithAuth("admin"),
