@@ -151,6 +151,19 @@ resource "azapi_resource" "app" {
   response_export_values = ["properties.defaultHostName"]
 }
 
+# Dropping subnet_id doesn't detach the app: the null virtualNetworkSubnetId
+# is left out of the PUT and Azure keeps the integration, whose
+# legionservicelink then blocks deleting the subnet. This deletes the
+# integration when subnet_id goes null or the app is destroyed. It references
+# subnet_id, so terraform runs it before destroying the subnet.
+resource "azapi_resource_action" "vnet_detach" {
+  count       = var.subnet_id != null ? 1 : 0
+  type        = "Microsoft.Web/sites/networkConfig@2024-11-01"
+  resource_id = "${azapi_resource.app.id}/networkConfig/virtualNetwork"
+  method      = "DELETE"
+  when        = "destroy"
+}
+
 # Deployments authenticate with Entra ID (the deploy workflows use OIDC), so
 # publishing credentials stay off. An update resource: these policies can't be
 # deleted, they go with the app.
