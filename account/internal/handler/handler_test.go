@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	siteURL  = "https://site.example"
-	password = "test-mode-password"
+	siteURL       = "https://site.example"
+	webhookSecret = "whsec_test_secret"
 )
 
 type fakeSender struct {
@@ -78,31 +78,41 @@ func (c *clock) advance(d time.Duration) {
 }
 
 type env struct {
-	h     *Handler
-	blobs *blobs.Fake
-	mail  *fakeSender
-	clock *clock
+	h      *Handler
+	blobs  *blobs.Fake
+	mail   *fakeSender
+	clock  *clock
+	stripe *fakeStripe
 }
 
-func newEnv() *env {
+func newEnv(t *testing.T) *env {
+	t.Helper()
 	b, mail := &blobs.Fake{}, &fakeSender{}
 	c := &clock{t: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+	fs := newFakeStripe(t)
 	accounts := &billing.Accounts{Blobs: b, Container: "billing", FreeCreditsSecret: []byte(strings.Repeat("s", 32))}
 	return &env{
-		blobs: b, mail: mail, clock: c,
+		blobs: b, mail: mail, clock: c, stripe: fs,
 		h: &Handler{
-			Store:        &billing.Store{Blobs: b, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5},
-			Accounts:     accounts,
-			Sessions:     &billing.Sessions{Blobs: b, Container: "billing", Accounts: accounts, TTL: 7 * 24 * time.Hour, Now: c.Now},
-			LoginTokens:  &billing.LoginTokens{Blobs: b, Container: "billing", TTL: 15 * time.Minute, Now: c.Now},
-			Limits:       &billing.RateLimiter{Blobs: b, Container: "billing", Now: c.Now},
-			Email:        mail,
-			SiteURL:      siteURL + "/",
-			PaymentsMode: PaymentsMock,
-			Packs:        map[string]Pack{"starter": {Credits: 2000, PriceEUR: 10}, "pro": {Credits: 12000, PriceEUR: 50}},
-			FreeCredits:  100,
-			MaxKeys:      2,
-			MockPassword: password,
+			Store:       &billing.Store{Blobs: b, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5},
+			Accounts:    accounts,
+			Sessions:    &billing.Sessions{Blobs: b, Container: "billing", Accounts: accounts, TTL: 7 * 24 * time.Hour, Now: c.Now},
+			LoginTokens: &billing.LoginTokens{Blobs: b, Container: "billing", TTL: 15 * time.Minute, Now: c.Now},
+			Limits:      &billing.RateLimiter{Blobs: b, Container: "billing", Now: c.Now},
+			Locks:       &billing.Locks{Blobs: b, Container: "billing", Now: c.Now},
+			Email:       mail,
+			SiteURL:     siteURL + "/",
+			Packs: map[string]Pack{
+				"starter": {Credits: 2000, PriceEUR: 10, PriceID: "price_starter"},
+				"pro":     {Credits: 12000, PriceEUR: 50, PriceID: "price_pro"},
+			},
+			FreeCredits:   100,
+			MaxKeys:       2,
+			MaxCredits:    20000,
+			Stripe:        fs.client(),
+			WebhookSecret: webhookSecret,
+			TestMode:      true,
+			Now:           c.Now,
 		},
 	}
 }
@@ -110,12 +120,13 @@ func newEnv() *env {
 // call sends a request to the endpoint its path names. session may be "".
 func (e *env) call(method, target, session, body string, header ...string) *httptest.ResponseRecorder {
 	routes := map[string]http.HandlerFunc{
-		"/api/auth/start":  e.h.Start,
-		"/api/auth/verify": e.h.Verify,
-		"/api/auth/logout": e.h.Logout,
-		"/api/me":          e.h.Me,
-		"/api/keys":        e.h.Keys,
-		"/api/purchases":   e.h.Purchases,
+		"/api/auth/start":      e.h.Start,
+		"/api/auth/verify":     e.h.Verify,
+		"/api/auth/logout":     e.h.Logout,
+		"/api/me":              e.h.Me,
+		"/api/keys":            e.h.Keys,
+		"/api/checkout":        e.h.Checkout,
+		"/api/webhooks/stripe": e.h.StripeWebhook,
 	}
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	if session != "" {
@@ -206,7 +217,7 @@ func TestClientIP(t *testing.T) {
 }
 
 func TestSessionRequired(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	for _, c := range []struct{ method, target, body string }{
 		{"GET", "/api/me", ""},
@@ -214,7 +225,7 @@ func TestSessionRequired(t *testing.T) {
 		{"GET", "/api/keys", ""},
 		{"POST", "/api/keys", `{"name":"x"}`},
 		{"DELETE", keyQuery(billing.KeyID("x")), ""},
-		{"POST", "/api/purchases", `{"password":"` + password + `"}`},
+		{"POST", "/api/checkout", `{"pack":"starter","key_id":"` + billing.KeyID("x") + `"}`},
 		{"POST", "/api/auth/logout", ""},
 	} {
 		for _, bad := range []string{"", "nope", session + "x"} {
@@ -241,7 +252,7 @@ func TestSessionRequired(t *testing.T) {
 }
 
 func TestMe(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	w := e.call("GET", "/api/me", session, "")
 	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
@@ -249,9 +260,9 @@ func TestMe(t *testing.T) {
 	}
 	var got map[string]any
 	decodeBody(t, w, &got)
-	want := `{"email":"ann@example.com","free_credits_available":100,"max_keys":2,` +
+	want := `{"email":"ann@example.com","free_credits_available":100,"max_credits":20000,"max_keys":2,` +
 		`"packs":{"pro":{"credits":12000,"price_eur":50},"starter":{"credits":2000,"price_eur":10}},` +
-		`"payments":"mock","prices":{"ocr_page":5,"text_page":1}}`
+		`"prices":{"ocr_page":5,"text_page":1},"test_mode":true}`
 	if b, _ := json.Marshal(got); string(b) != want {
 		t.Errorf("me =\n%s\nwant\n%s", b, want)
 	}

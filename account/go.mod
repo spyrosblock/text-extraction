@@ -7,6 +7,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/azure/azure-functions-golang-worker v0.7.0-preview
 	github.com/spyrosblock/text-extraction/billing v0.0.0
+	github.com/stripe/stripe-go/v87 v87.1.0
 )
 
 require (
@@ -23,6 +24,7 @@ require (
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.28 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect

@@ -15,10 +15,14 @@
 #    deployed (target ocr), not the quickstart one.
 # 3. Expects 401 from the producer without a key, 404 from the consumer for
 #    another key's job, and 402 from the producer for the key without credits.
-# 4. Account app and website (PLAN2_2): 401 from /api/me and /api/purchases
-#    without a session and from /api/auth/verify for a random token; the
-#    Static Web App serves index.html with the CSP header and a config.js that
-#    names the account app. No email is sent: sign-in is checked by hand.
+# 4. Account app and website (PLAN2_2, PLAN2_3): 401 from /api/me and
+#    /api/checkout without a session and from /api/auth/verify for a random
+#    token, 404 from the removed /api/purchases, 400 from
+#    /api/webhooks/stripe for a wrong signature; the Static Web App serves
+#    index.html with the CSP header, a config.js that names the account app,
+#    and the terms, privacy and refunds pages, and index.html on the custom
+#    domain when siteUrl is one. No email is sent and no checkout is created:
+#    sign-in and payments are checked by hand.
 #
 # Reads the app names and host names from `terraform output -json` in
 # infra/ (or from OUTPUTS, as staging.yml passes them), and the
@@ -51,6 +55,7 @@ manage_url="https://$(output producerHostName)/api/manage"
 account_host=$(output accountHostName)
 account_url="https://$account_host/api"
 web_url="https://$(output webHostName)"
+site_url=$(output siteUrl)
 
 mask() {
   if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
@@ -180,13 +185,18 @@ log "Account app: $account_url"
 code=$(warm_code "$account_url/me")
 [[ "$code" == 401 ]] || fail "GET /api/me without a session: HTTP $code, want 401"
 code=$(http_code -X POST -H 'Content-Type: application/json' \
-  -d "{\"pack\": \"starter\", \"key_id\": \"x\", \"order_id\": \"$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)\", \"password\": \"x\"}" \
-  "$account_url/purchases")
-[[ "$code" == 401 ]] || fail "POST /api/purchases without a session: HTTP $code, want 401"
+  -d '{"pack": "starter", "key_id": "x"}' "$account_url/checkout")
+[[ "$code" == 401 ]] || fail "POST /api/checkout without a session: HTTP $code, want 401"
+code=$(http_code -X POST -H 'Content-Type: application/json' -d '{}' "$account_url/purchases")
+[[ "$code" == 404 ]] || fail "POST /api/purchases (removed mock purchases): HTTP $code, want 404"
+code=$(http_code -X POST -H 'Content-Type: application/json' \
+  -H "Stripe-Signature: t=$(date +%s),v1=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')" \
+  -d '{"id": "evt_smoke", "object": "event", "type": "checkout.session.completed"}' "$account_url/webhooks/stripe")
+[[ "$code" == 400 ]] || fail "POST /api/webhooks/stripe with a wrong signature: HTTP $code, want 400"
 code=$(http_code -X POST -H 'Content-Type: application/json' \
   -d "{\"token\": \"$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')\"}" "$account_url/auth/verify")
 [[ "$code" == 401 ]] || fail "POST /api/auth/verify with a random token: HTTP $code, want 401"
-echo "401s as expected"
+echo "401, 404 and 400 as expected"
 
 log "Website: $web_url"
 headers=$(curl -sS --fail -D - -o /dev/null --retry 6 --retry-delay 10 --retry-all-errors --max-time 60 \
@@ -196,7 +206,15 @@ csp=$(tr -d '\r' <<<"$headers" | sed -n 's/^content-security-policy: *//Ip')
   fail "index.html: CSP ${csp:-missing}, want default-src 'self' and connect-src to https://$account_host"
 config=$(curl -sS --fail --max-time 60 "$web_url/config.js") || fail "GET $web_url/config.js failed"
 grep -qF "https://$account_host" <<<"$config" || fail "config.js doesn't name https://$account_host: $config"
-echo "CSP and config.js as expected"
+for page in terms privacy refunds; do
+  curl -sS --fail -o /dev/null --max-time 60 "$web_url/$page.html" || fail "GET $web_url/$page.html failed"
+done
+if [[ "$site_url" != "$web_url" ]]; then
+  curl -sS --fail -o /dev/null --retry 3 --retry-delay 10 --max-time 60 "$site_url/index.html" ||
+    fail "GET $site_url/index.html (custom domain) failed"
+  echo "custom domain $site_url serves index.html"
+fi
+echo "CSP, config.js and legal pages as expected"
 
 log "OCR (up to $OCR_TIMEOUT s)"
 doc=$(wait_text "$ocr_id" "$OCR_TIMEOUT")

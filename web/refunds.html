@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Refunds · text-extraction</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="refunds">
+  <div class="banner" data-test-banner hidden>Test mode: pay with the test card 4242 4242 4242 4242; no money is taken.</div>
+  <header>
+    <a class="brand" href="index.html">text-extraction</a>
+    <nav>
+      <a href="login.html" data-signed-out>Sign in</a>
+      <a href="dashboard.html" data-signed-in hidden>Dashboard</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Refund policy</h1>
+    <p class="small muted">Last updated: 31 October 2026</p>
+    <p>Credit packs are sold through Stripe's Managed Payments: Stripe, through Link, is the
+      merchant of record. Refunds are paid back through Stripe to the card or account you paid
+      with, and Link sends you a refund note.</p>
+
+    <h2>Unused credits: 14 days</h2>
+    <p>Within <strong>14 days</strong> of a purchase you can ask for a refund of the credits from it
+      that you haven't used. We refund the share of the pack that is still on the key: for example,
+      if you bought 2,000 credits for €10 and the key still has 1,500 of them, you get €7.50 back.
+      After 14 days purchases aren't refunded, except where the law requires it; your credits don't
+      expire, so you can keep using them.</p>
+    <p>If you are a consumer in the European Union you have a 14-day right to withdraw from the
+      purchase. This policy refunds the unused part of a purchase in those same 14 days, whether or
+      not you are a consumer.</p>
+
+    <h2>Over the account's credit limit: automatic</h2>
+    <p>An account can hold a limited number of credits, summed over its keys. If a payment would
+      take your account over it, for example because you paid on two payment pages opened at the
+      same time, that payment is <strong>refunded in full automatically</strong> and its credits
+      aren't added. You don't need to ask; the refund reaches your payment method in the usual time
+      for it.</p>
+
+    <h2>Not refunded</h2>
+    <ul>
+      <li>Credits you have used.</li>
+      <li>Credits spent on PDFs that failed or whose pages couldn't be read.</li>
+      <li>Free credits.</li>
+      <li>Credits on a key you revoked, or in an account you deleted: they are forfeited.</li>
+    </ul>
+
+    <h2>What a refund does to your credits</h2>
+    <p>When a payment is refunded, in full or in part, the same share of its credits is taken off
+      the key it was bought for. The same happens when the bank of the card holder reverses a
+      payment (a chargeback) and the dispute is lost: all the credits from that purchase are taken
+      back. If they were already spent, the key's balance goes negative and the key stops working
+      until it is topped up.</p>
+
+    <h2>How to ask</h2>
+    <p>Write to <span data-contact></span> from the email address of your account, with the receipt
+      number from Link's receipt (or the date and amount of the payment) and the last four
+      characters of the key. For questions about the payment itself you can also contact Link's
+      support from your receipt.</p>
+  </main>
+  <footer>
+    text-extraction · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+    <a href="refunds.html">Refunds</a> · Contact: <span data-contact></span>
+  </footer>
+</body>
+</html>

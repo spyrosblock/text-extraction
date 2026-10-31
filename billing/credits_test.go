@@ -351,3 +351,150 @@ func TestCreditOrderParallel(t *testing.T) {
 		t.Errorf("balance = %d, want 40", got)
 	}
 }
+
+func TestDebitOrder(t *testing.T) {
+	s, _ := newStore()
+	key, id := create(t, s, 0)
+	if _, _, err := s.CreditOrder(ctx, id, "pi_1", "starter", 2000); err != nil {
+		t.Fatal(err)
+	}
+
+	// A partial refund, then a full one, debit only the difference.
+	bal, debited, err := s.DebitOrder(ctx, id, "pi_1", 1000)
+	if err != nil || bal != 1000 || debited != 1000 {
+		t.Fatalf("DebitOrder half = %d, %d, %v; want 1000, 1000", bal, debited, err)
+	}
+	// A repeated refund is a no-op.
+	bal, debited, err = s.DebitOrder(ctx, id, "pi_1", 1000)
+	if err != nil || bal != 1000 || debited != 1000 {
+		t.Fatalf("repeated DebitOrder = %d, %d, %v; want 1000, 1000", bal, debited, err)
+	}
+	// A lower total (an out-of-order event) is a no-op too.
+	if bal, debited, err = s.DebitOrder(ctx, id, "pi_1", 500); err != nil || bal != 1000 || debited != 1000 {
+		t.Fatalf("lower DebitOrder = %d, %d, %v", bal, debited, err)
+	}
+	// Spent credits make the balance go negative; total is capped at the order.
+	if _, err := s.Charge(ctx, id, 600); err != nil {
+		t.Fatal(err)
+	}
+	bal, debited, err = s.DebitOrder(ctx, id, "pi_1", 5000)
+	if err != nil || bal != -600 || debited != 2000 {
+		t.Fatalf("full DebitOrder = %d, %d, %v; want -600, 2000", bal, debited, err)
+	}
+	if got := balance(t, s, key); got != -600 {
+		t.Errorf("stored balance = %d", got)
+	}
+	k, _ := s.Get(ctx, id)
+	if o := k.Orders["pi_1"]; o.Debited != 2000 || o.Credits != 2000 || o.Pack != "starter" {
+		t.Errorf("order = %+v", o)
+	}
+}
+
+func TestDebitOrderUnknown(t *testing.T) {
+	s, b := newStore()
+	_, id := create(t, s, 10)
+	before := string(b.Data("billing", "keys/"+id+".json"))
+	if _, _, err := s.DebitOrder(ctx, id, "pi_nope", 5); !errors.Is(err, ErrUnknownOrder) {
+		t.Errorf("unknown order err = %v", err)
+	}
+	if after := string(b.Data("billing", "keys/"+id+".json")); after != before {
+		t.Errorf("key changed: %s", after)
+	}
+	if _, _, err := s.DebitOrder(ctx, KeyID("other"), "pi_1", 5); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("unknown key err = %v", err)
+	}
+}
+
+// Charges and later credits rewrite the key blob; debited must survive.
+func TestDebitedSurvivesCharge(t *testing.T) {
+	s, _ := newStore()
+	_, id := create(t, s, 0)
+	if _, _, err := s.CreditOrder(ctx, id, "pi_1", "starter", 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.DebitOrder(ctx, id, "pi_1", 40); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Charge(ctx, id, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreditOrder(ctx, id, "pi_2", "starter", 100); err != nil {
+		t.Fatal(err)
+	}
+	k, _ := s.Get(ctx, id)
+	if k.Credits != 150 || k.Orders["pi_1"].Debited != 40 || k.Orders["pi_2"].Debited != 0 {
+		t.Errorf("key = %+v", k)
+	}
+}
+
+func TestDebitOrderRetriesOnConflict(t *testing.T) {
+	s, b := newStore()
+	key, id := create(t, s, 0)
+	if _, _, err := s.CreditOrder(ctx, id, "pi_1", "starter", 100); err != nil {
+		t.Fatal(err)
+	}
+	conflicts := 2
+	b.BeforeUploadIf = func(container, name string) {
+		if conflicts > 0 {
+			conflicts--
+			// Someone else spends 3 credits.
+			var k Key
+			if err := json.Unmarshal(b.Data(container, name), &k); err != nil {
+				t.Fatal(err)
+			}
+			k.Credits -= 3
+			b.Put(container, name, mustJSON(t, k))
+		}
+	}
+	bal, debited, err := s.DebitOrder(ctx, id, "pi_1", 50)
+	if err != nil || bal != 100-3-3-50 || debited != 50 {
+		t.Fatalf("DebitOrder = %d, %d, %v", bal, debited, err)
+	}
+	if got := balance(t, s, key); got != bal {
+		t.Errorf("stored balance = %d", got)
+	}
+
+	// Every retry conflicts: ErrBusy, nothing debited.
+	b.BeforeUploadIf = func(container, name string) {
+		b.Put(container, name, b.Data(container, name))
+	}
+	if _, _, err := s.DebitOrder(ctx, id, "pi_1", 100); !errors.Is(err, ErrBusy) {
+		t.Errorf("err = %v, want ErrBusy", err)
+	}
+	if got := balance(t, s, key); got != bal {
+		t.Errorf("balance after ErrBusy = %d, want %d", got, bal)
+	}
+}
+
+func TestRefuseOrder(t *testing.T) {
+	s, _ := newStore()
+	key, id := create(t, s, 10)
+
+	o, err := s.RefuseOrder(ctx, id, "order-1", "pro")
+	if err != nil || !o.OverCap || o.Credits != 0 || o.Pack != "pro" {
+		t.Fatalf("RefuseOrder = %+v, %v", o, err)
+	}
+	// Refused orders aren't credited later, nor debited.
+	if _, credited, err := s.CreditOrder(ctx, id, "order-1", "pro", 12000); err != nil || credited {
+		t.Errorf("CreditOrder after RefuseOrder = %v, %v", credited, err)
+	}
+	if _, debited, err := s.DebitOrder(ctx, id, "order-1", 12000); err != nil || debited != 0 {
+		t.Errorf("DebitOrder after RefuseOrder = %d, %v", debited, err)
+	}
+	if o, err := s.RefuseOrder(ctx, id, "order-1", "pro"); err != nil || !o.OverCap {
+		t.Errorf("repeated RefuseOrder = %+v, %v", o, err)
+	}
+	// A credited order stays credited.
+	if _, _, err := s.CreditOrder(ctx, id, "order-2", "starter", 2000); err != nil {
+		t.Fatal(err)
+	}
+	if o, err := s.RefuseOrder(ctx, id, "order-2", "starter"); err != nil || o.OverCap || o.Credits != 2000 {
+		t.Errorf("RefuseOrder of a credited order = %+v, %v", o, err)
+	}
+	if got := balance(t, s, key); got != 2010 {
+		t.Errorf("balance = %d, want 2010", got)
+	}
+	if _, err := s.RefuseOrder(ctx, KeyID("other"), "order-3", "pro"); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("RefuseOrder unknown key err = %v", err)
+	}
+}

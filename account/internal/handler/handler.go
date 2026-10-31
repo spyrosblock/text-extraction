@@ -1,5 +1,6 @@
 // Package handler implements the account app's HTTP endpoints: magic-link
-// sign-in, the customer's API keys and mock purchases of credit packs.
+// sign-in, the customer's API keys, and buying credit packs through Stripe
+// Checkout (Managed Payments) and its webhook.
 package handler
 
 import (
@@ -10,6 +11,9 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/stripe/stripe-go/v87"
 
 	"github.com/spyrosblock/text-extraction/account/internal/email"
 	"github.com/spyrosblock/text-extraction/billing"
@@ -18,15 +22,13 @@ import (
 // maxBody bounds request bodies.
 const maxBody = 4 << 10
 
-// PaymentsMock is the only payments mode for now: purchases credit the key
-// at once and no money moves.
-const PaymentsMock = "mock"
-
-// Pack is a credit pack customers can buy. The price is only displayed;
-// the credits always come from this server-side list.
+// Pack is a credit pack customers can buy. Stripe charges the amount of the
+// Price PriceID; PriceEUR is only displayed and should equal it. The
+// credits always come from this server-side list.
 type Pack struct {
 	Credits  int64   `json:"credits"`
 	PriceEUR float64 `json:"price_eur"`
+	PriceID  string  `json:"price_id"`
 }
 
 type Sender interface {
@@ -39,18 +41,39 @@ type Handler struct {
 	Sessions    *billing.Sessions
 	LoginTokens *billing.LoginTokens
 	Limits      *billing.RateLimiter
-	Email       Sender
+	// Locks serialize the webhook's credit-cap check per account.
+	Locks *billing.Locks
+	Email Sender
 
 	// SiteURL is the website, e.g. https://<app>.azurestaticapps.net; the
-	// magic link points to its auth.html.
-	SiteURL      string
-	PaymentsMode string
-	Packs        map[string]Pack
+	// magic link and the checkout's return URLs point to it.
+	SiteURL string
+	Packs   map[string]Pack
 	// FreeCredits go to the first key of each email address, once.
 	FreeCredits int64
 	MaxKeys     int
-	// MockPassword must come with every mock purchase; empty turns them off.
-	MockPassword string
+	// MaxCredits caps the credits an account can hold, summed over its
+	// keys: a checkout that would go over it is refused, and a paid order
+	// that would (sessions opened in parallel) is refunded. 0: no cap.
+	MaxCredits int64
+
+	// Stripe creates Checkout Sessions and looks them up; nil when no API
+	// key is configured, and then checkout answers 503.
+	Stripe *stripe.Client
+	// WebhookSecret verifies the Stripe-Signature of webhook events.
+	WebhookSecret string
+	// TestMode is true when Stripe runs in test mode; webhook events must
+	// have livemode == !TestMode.
+	TestMode bool
+	// Now is the clock for checkout expiry; time.Now when nil.
+	Now func() time.Time
+}
+
+func (h *Handler) now() time.Time {
+	if h.Now != nil {
+		return h.Now()
+	}
+	return time.Now()
 }
 
 // session is the signed-in caller.

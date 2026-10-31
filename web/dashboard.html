@@ -9,7 +9,7 @@
   <script src="app.js" defer></script>
 </head>
 <body data-page="dashboard">
-  <div class="banner">Test mode: payments are simulated and no money is taken.</div>
+  <div class="banner" data-test-banner hidden>Test mode: pay with the test card 4242 4242 4242 4242; no money is taken.</div>
   <header>
     <a class="brand" href="index.html">text-extraction</a>
     <nav>
@@ -62,20 +62,25 @@
     <p class="small muted">Prices: <span id="price-text">1</span> credit per page with a text layer,
       <span id="price-ocr">5</span> per page that needs OCR.</p>
   </main>
-  <footer>text-extraction · <a href="privacy.html">Privacy</a></footer>
+  <footer>
+    text-extraction · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+    <a href="refunds.html">Refunds</a> · Contact: <span data-contact></span>
+  </footer>
 
   <dialog id="checkout" aria-labelledby="checkout-title">
     <form id="checkout-form" method="dialog">
       <h2 id="checkout-title">Buy credits</h2>
-      <p class="small">For <strong id="checkout-key"></strong>. Test mode: no card is asked for and
-        no money is taken.</p>
+      <p class="small">For <strong id="checkout-key"></strong>. You pay on Stripe's secure page;
+        Stripe, through Link, is the merchant of record and sends your receipt. Credits don't
+        expire. See the <a href="refunds.html">refund policy</a>.</p>
+      <p id="checkout-test" class="small muted" hidden>Test mode: pay with the card
+        <code>4242 4242 4242 4242</code>, any future date and any CVC. No money is taken.</p>
       <fieldset id="packs"></fieldset>
-      <label for="mock-password">Test-mode password</label>
-      <input id="mock-password" type="password" autocomplete="off" required>
+      <p id="checkout-cap" class="small muted" hidden></p>
       <p id="checkout-message" class="message" hidden></p>
       <div class="buttons">
         <button id="checkout-close" class="secondary" type="button">Close</button>
-        <button id="checkout-pay" type="submit">Pay (test mode)</button>
+        <button id="checkout-pay" type="submit">Continue to payment</button>
       </div>
     </form>
   </dialog>

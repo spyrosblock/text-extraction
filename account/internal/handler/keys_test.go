@@ -11,7 +11,7 @@ import (
 )
 
 func TestKeys(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 
 	first := e.createKey(t, session)
@@ -63,7 +63,7 @@ func TestKeys(t *testing.T) {
 }
 
 func TestKeyBadRequests(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	for _, body := range []string{`{}`, `{"name":"  "}`, `{"name":"` + strings.Repeat("é", 65) + `"}`, `name=x`} {
 		if w := e.call("POST", "/api/keys", session, body); w.Code != http.StatusBadRequest {
@@ -82,7 +82,7 @@ func TestKeyBadRequests(t *testing.T) {
 
 // Another account's key and an admin-issued key are 404, as is an unknown id.
 func TestKeyOwnership(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	ann := e.signIn(t, "ann@example.com")
 	bob := e.signIn(t, "bob@example.com")
 	bobsKey := e.createKey(t, bob)
@@ -100,13 +100,15 @@ func TestKeyOwnership(t *testing.T) {
 		if w := e.call("DELETE", keyQuery(id), ann, ""); w.Code != http.StatusNotFound {
 			t.Errorf("revoke %s: %d", id, w.Code)
 		}
-		body := `{"pack":"starter","key_id":"` + id + `","order_id":"0b6f8f8e-5c1a-4f57-9a43-3f1c2b9d7e10","password":"` + password + `"}`
-		if w := e.call("POST", "/api/purchases", ann, body); w.Code != http.StatusNotFound {
-			t.Errorf("purchase for %s: %d", id, w.Code)
+		if w := e.call("POST", "/api/checkout", ann, `{"pack":"starter","key_id":"`+id+`"}`); w.Code != http.StatusNotFound {
+			t.Errorf("checkout for %s: %d", id, w.Code)
 		}
 	}
 	if got := e.balance(t, bobsKey.ID); got != 100 {
 		t.Errorf("bob's balance = %d", got)
+	}
+	if n := e.stripe.createCount(); n != 0 {
+		t.Errorf("%d sessions created at Stripe", n)
 	}
 	if got := e.balance(t, adminKey); got != 50 {
 		t.Errorf("admin key's balance = %d", got)
@@ -121,7 +123,7 @@ func TestKeyOwnership(t *testing.T) {
 // Two keys created in parallel on a new account: exactly one gets the free
 // credits.
 func TestCreateKeysParallel(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	var mu sync.Mutex
 	var credits []int64
@@ -148,7 +150,7 @@ func TestCreateKeysParallel(t *testing.T) {
 
 // Parallel creates can't go over MAX_KEYS.
 func TestCreateKeysParallelLimit(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	var wg sync.WaitGroup
 	for range 6 {
@@ -164,7 +166,7 @@ func TestCreateKeysParallelLimit(t *testing.T) {
 
 // A failed write after the claim releases it, and leaves no key behind.
 func TestCreateKeyFailureReleasesClaim(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	e.blobs.UploadErr = map[string]error{"billing/accounts/": errors.New("down")}
 	if w := e.call("POST", "/api/keys", session, `{"name":"k"}`); w.Code != http.StatusInternalServerError {
@@ -187,7 +189,7 @@ func TestCreateKeyFailureReleasesClaim(t *testing.T) {
 // Deleting the account revokes its keys; signing up again with the same
 // address doesn't bring the free credits back.
 func TestDeleteAccount(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	session := e.signIn(t, "ann@example.com")
 	other := e.signIn(t, "ann@example.com")
 	key := e.createKey(t, session)

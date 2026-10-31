@@ -1,13 +1,17 @@
 // Shared script for every page: <body data-page="..."> picks what runs.
-// config.js (generated at deploy, config.local.js locally) sets the API hosts.
-// The session token lives in localStorage; the test-mode password only in
-// memory, for as long as the dashboard is open.
+// config.js (generated at deploy, config.local.js locally) sets the API hosts,
+// whether payments are in test mode, the packs, the contact address and
+// whether prices include VAT. The session token lives in localStorage.
 "use strict";
 
 const API = trimSlash(window.ACCOUNT_API || "");
 const PRODUCER = trimSlash(window.PRODUCER_API || "https://<producer host>");
 const CONSUMER = trimSlash(window.CONSUMER_API || "https://<consumer host>");
+const CONTACT_EMAIL = window.CONTACT_EMAIL || "";
 const SESSION_KEY = "session";
+// How long, and how often, the dashboard reloads the keys after a payment.
+const PAID_POLL_MS = 60000;
+const PAID_POLL_EVERY_MS = 5000;
 
 function trimSlash(s) {
   return s.replace(/\/+$/, "");
@@ -130,6 +134,34 @@ function capitalize(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// vatNote is how pack prices are labelled: Stripe adds VAT on top of the
+// price, or the price includes it, depending on the Stripe Prices' tax
+// behavior.
+function vatNote() {
+  return window.PRICES_INCLUDE_VAT === false ? "VAT added at checkout" : "incl. VAT";
+}
+
+// sortedPacks returns [name, pack] pairs, smallest first.
+function sortedPacks(packs) {
+  return Object.entries(packs || {}).sort((a, b) => a[1].credits - b[1].credits);
+}
+
+// setTestBanner shows or hides the test-mode banner.
+function setTestBanner(on) {
+  for (const node of document.querySelectorAll("[data-test-banner]")) node.hidden = !on;
+}
+
+// fillContacts turns every [data-contact] element into a mailto link.
+function fillContacts() {
+  for (const node of document.querySelectorAll("[data-contact]")) {
+    if (!CONTACT_EMAIL) {
+      node.textContent = "(contact address not configured)";
+      continue;
+    }
+    node.replaceChildren(el("a", { href: "mailto:" + CONTACT_EMAIL }, CONTACT_EMAIL));
+  }
+}
+
 // --- pages
 
 const pages = {
@@ -142,6 +174,15 @@ const pages = {
       "curl -X POST " + CONSUMER + "/api/text \\\n" +
       '  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \\\n' +
       "  -d '{\"request_id\": \"<request_id>\"}'";
+    // The packs come from config.js; without it the static cards stay.
+    const packs = sortedPacks(window.PACKS);
+    if (packs.length > 0) {
+      $("packs").replaceChildren(...packs.map(([name, p]) =>
+        el("div", { class: "card" }, el("strong", {}, capitalize(name)),
+          credits(p.credits) + " credits · " + eurFmt.format(p.price_eur))));
+    }
+    $("vat-note").textContent = "Prices " + (window.PRICES_INCLUDE_VAT === false ? "exclude VAT, added at checkout" : "include VAT") +
+      ". Payments are processed by Stripe, through Link, as the merchant of record.";
   },
 
   login() {
@@ -206,6 +247,8 @@ const pages = {
   },
 
   privacy() {},
+  terms() {},
+  refunds() {},
 };
 
 // --- dashboard
@@ -213,12 +256,8 @@ const pages = {
 async function dashboard() {
   let me = null;
   let keys = [];
-  // The test-mode password, kept for this page only.
-  let password = "";
-  // The key and order of the open checkout. The order id is reused when a
-  // payment is retried, so a retry can't credit twice.
+  // The key of the open checkout.
   let checkoutKey = null;
-  let orderId = null;
 
   const pageMessage = $("page-message");
   const createMessage = $("create-message");
@@ -227,6 +266,7 @@ async function dashboard() {
     const r = await authed("GET", "/api/me");
     if (r.status !== 200) throw new Error(errorText(r, "Couldn't load your account"));
     me = r.data;
+    setTestBanner(me.test_mode);
     $("me-email").textContent = me.email;
     $("price-text").textContent = credits(me.prices.text_page);
     $("price-ocr").textContent = credits(me.prices.ocr_page);
@@ -243,7 +283,6 @@ async function dashboard() {
     const rows = keys.map((k) => {
       const buy = el("button", { class: "secondary small", type: "button", textContent: "Buy credits" });
       buy.addEventListener("click", () => openCheckout(k));
-      buy.hidden = me.payments !== "mock";
       const revoke = el("button", { class: "danger small", type: "button", textContent: "Revoke" });
       revoke.addEventListener("click", () => revokeKey(k));
       return el("tr", {},
@@ -263,13 +302,6 @@ async function dashboard() {
     show($("free-credits"),
       !full && me.free_credits_available > 0 ? "Your first key comes with " + credits(me.free_credits_available) + " free credits." : "",
       "ok");
-  }
-
-  function setBalance(keyID, balance) {
-    const k = keys.find((k) => k.key_id === keyID);
-    if (k) k.credits = balance;
-    const cell = document.querySelector('[data-credits="' + keyID + '"]');
-    if (cell) cell.textContent = credits(balance);
   }
 
   // Create a key.
@@ -358,77 +390,135 @@ async function dashboard() {
     }
   });
 
-  // --- mock checkout
+  // --- checkout
 
   const dialog = $("checkout");
   const checkoutMessage = $("checkout-message");
 
   function openCheckout(k) {
     checkoutKey = k;
-    orderId = crypto.randomUUID();
     $("checkout-key").textContent = k.name + " (…" + k.hint + ")";
-    const packs = Object.entries(me.packs).sort((a, b) => a[1].credits - b[1].credits);
+    $("checkout-test").hidden = !me.test_mode;
+    renderPacks();
+    show(checkoutMessage, "", "");
+    dialog.showModal();
+  }
+
+  // renderPacks lists the packs to choose from, the first that fits checked.
+  function renderPacks() {
+    // An account holds at most me.max_credits, summed over its keys; packs
+    // that would go over can't be bought (the server checks it too).
+    const total = keys.reduce((sum, key) => sum + key.credits, 0);
+    const fits = (p) => !(me.max_credits > 0) || total + p.credits <= me.max_credits;
+    const packs = sortedPacks(me.packs);
+    const first = packs.findIndex(([, p]) => fits(p));
     $("packs").replaceChildren(
       el("legend", { class: "small muted" }, "Pack"),
-      ...packs.map(([name, p], i) => {
-        const radio = el("input", { type: "radio", name: "pack", value: name, checked: i === 0 });
-        // A different pack is a different order.
-        radio.addEventListener("change", () => { orderId = crypto.randomUUID(); });
-        return el("label", { class: "pack" }, radio,
-          el("span", {}, el("strong", {}, capitalize(name)), " · " + credits(p.credits) + " credits · " + eurFmt.format(p.price_eur)));
-      }),
+      ...packs.map(([name, p], i) =>
+        el("label", { class: "pack" },
+          el("input", { type: "radio", name: "pack", value: name, checked: i === first, disabled: !fits(p) }),
+          el("span", {}, el("strong", {}, capitalize(name)),
+            " · " + credits(p.credits) + " credits · " + eurFmt.format(p.price_eur) + " " + vatNote()))),
     );
-    $("mock-password").value = password;
-    show(checkoutMessage, "", "");
-    $("checkout-pay").disabled = false;
-    dialog.showModal();
+    const capped = me.max_credits > 0 && packs.some(([, p]) => !fits(p));
+    show($("checkout-cap"), capped
+      ? "An account can hold at most " + credits(me.max_credits) + " credits; yours has " + credits(total) + "." +
+        (first < 0 ? " Use some before buying more." : "")
+      : "", "");
+    $("checkout-pay").disabled = !canPay();
+  }
+
+  function canPay() {
+    return $("checkout-form").querySelector('input[name="pack"]:checked:enabled') !== null;
   }
 
   $("checkout-close").addEventListener("click", () => dialog.close());
 
+  // Back from Stripe without paying, the browser may restore this page as it
+  // was left: with the button disabled.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    $("checkout-pay").disabled = !canPay();
+    show(checkoutMessage, "", "");
+  });
+
   $("checkout-form").addEventListener("submit", async (e) => {
     e.preventDefault(); // keep the dialog open
     const pack = new FormData(e.target).get("pack");
-    password = $("mock-password").value;
     const pay = $("checkout-pay");
     pay.disabled = true;
-    show(checkoutMessage, "Processing…", "");
+    show(checkoutMessage, "Opening the payment page…", "");
+    let leaving = false;
     try {
-      const r = await authed("POST", "/api/purchases", {
-        pack, key_id: checkoutKey.key_id, order_id: orderId, password,
-      });
-      if (r.status === 200) {
-        setBalance(checkoutKey.key_id, r.data.balance);
-        show(checkoutMessage,
-          "Added " + credits(r.data.credits) + " credits. Balance: " + credits(r.data.balance) + ".", "ok");
-        orderId = crypto.randomUUID(); // the next payment is a new order
-      } else if (r.status === 403) {
-        password = "";
-        const off = r.data && r.data.error === "test-mode purchases are disabled";
-        show(checkoutMessage, off ? "Test-mode purchases are turned off." : "Wrong test-mode password.", "error");
-      } else if (r.status === 429) {
-        show(checkoutMessage, "Too many wrong passwords. Try again later.", "error");
+      const r = await authed("POST", "/api/checkout", { pack, key_id: checkoutKey.key_id });
+      if (r.status === 200 && r.data && typeof r.data.url === "string" && r.data.url.startsWith("https://")) {
+        // A top-level navigation to Stripe's page, so the CSP stays as is.
+        leaving = true;
+        location.href = r.data.url;
+      } else if (r.status === 409) {
+        // Over the account's credit cap, e.g. after a payment in another tab.
+        show(checkoutMessage, errorText(r, "This pack would take your account over its credit limit."), "error");
+        await loadKeys();
+        renderPacks();
       } else if (r.status === 404) {
         show(checkoutMessage, "This key no longer exists.", "error");
         await loadKeys();
+      } else if (r.status === 429) {
+        show(checkoutMessage, "Too many payment attempts. Try again in an hour.", "error");
+      } else if (r.status === 503) {
+        show(checkoutMessage, "Payments aren't available right now. Try again later.", "error");
+      } else if (r.status === 502) {
+        show(checkoutMessage, "Couldn't open the payment page. Try again.", "error");
       } else {
-        show(checkoutMessage, errorText(r, "The payment failed, try again"), "error");
+        show(checkoutMessage, errorText(r, "Couldn't open the payment page"), "error");
       }
     } catch (err) {
-      // The same order id is sent again on retry.
       show(checkoutMessage, err.message, "error");
     } finally {
-      pay.disabled = false;
+      pay.disabled = leaving || !canPay();
     }
   });
 
+  // Back from Stripe after paying: the webhook credits the key within
+  // moments, so reload the keys until a balance goes up, for up to a minute.
+  async function afterPayment() {
+    const params = new URLSearchParams(location.search);
+    if (params.get("paid") !== "1") return;
+    show(pageMessage, "Payment received. Your credits appear within a minute.", "ok");
+    const before = new Map(keys.map((k) => [k.key_id, k.credits]));
+    const raised = () => keys.some((k) => k.credits > (before.get(k.key_id) ?? Infinity));
+    const deadline = Date.now() + PAID_POLL_MS;
+    while (Date.now() < deadline && !raised()) {
+      await new Promise((resolve) => setTimeout(resolve, PAID_POLL_EVERY_MS));
+      try {
+        await loadKeys();
+      } catch {
+        // Try again on the next round.
+      }
+    }
+    if (raised()) {
+      show(pageMessage, "Payment received. Your credits have been added.", "ok");
+    } else if (me.max_credits > 0) {
+      // Likely refunded: another payment took the account to its cap first.
+      show(pageMessage, "Payment received, but no credits were added yet. A payment that would take your account over " +
+        credits(me.max_credits) + " credits is refunded in full. Otherwise, reload the page in a few minutes.", "");
+    }
+    params.delete("paid");
+    const query = params.toString();
+    history.replaceState(null, "", location.pathname + (query ? "?" + query : ""));
+  }
+
   await loadMe();
   await loadKeys();
+  await afterPayment();
 }
 
 // --- start
 
 document.addEventListener("DOMContentLoaded", () => {
+  // The dashboard corrects this from /api/me.
+  setTestBanner(window.TEST_MODE === true);
+  fillContacts();
   const signedIn = Boolean(getSession());
   for (const node of document.querySelectorAll("[data-signed-in]")) node.hidden = !signedIn;
   for (const node of document.querySelectorAll("[data-signed-out]")) node.hidden = signedIn;

@@ -14,12 +14,15 @@
     "SITE_URL": "http://localhost:8000",
     "EMAIL_MODE": "log",
 
-    "PAYMENTS_MODE": "mock",
-    "PACKS": "{\"starter\":{\"credits\":2000,\"price_eur\":10},\"pro\":{\"credits\":12000,\"price_eur\":50}}",
+    "PACKS": "{\"starter\":{\"credits\":2000,\"price_eur\":10,\"price_id\":\"price_REPLACE_test_starter\"},\"pro\":{\"credits\":12000,\"price_eur\":50,\"price_id\":\"price_REPLACE_test_pro\"}}",
     "FREE_CREDITS": "100",
     "MAX_KEYS": "2",
+    "MAX_ACCOUNT_CREDITS": "20000",
     "FREE_CREDITS_SECRET": "local-only-free-credits-secret-not-for-azure",
-    "MOCK_TOKENS_PASSWORD": "local-test-password"
+
+    "PAYMENTS_TEST_MODE": "true",
+    "STRIPE_API_KEY": "",
+    "STRIPE_WEBHOOK_SECRET": "whsec_REPLACE_with_the_one_stripe_listen_prints"
   },
   "Host": {
     "LocalHttpPort": 7073,

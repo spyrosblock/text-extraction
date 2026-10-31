@@ -110,6 +110,8 @@ module "email" {
   resource_group_name        = data.azurerm_resource_group.this.name
   communication_service_name = local.names.acs
   email_service_name         = local.names.email
+  custom_domain              = var.email_domain
+  custom_domain_verified     = var.email_domain_verified
   tags                       = local.tags
 }
 
@@ -117,6 +119,7 @@ module "web" {
   source              = "./modules/web"
   resource_group_name = data.azurerm_resource_group.this.name
   name                = local.names.web
+  custom_domain       = var.web_domain
   tags                = local.tags
 }
 
@@ -204,11 +207,13 @@ resource "random_password" "free_credits" {
 }
 
 locals {
-  site_url = "https://${module.web.default_host_name}"
+  default_site_url = "https://${module.web.default_host_name}"
+  # Magic links and the checkout's return URLs go to the custom domain.
+  site_url = var.web_domain != "" ? "https://${var.web_domain}" : local.default_site_url
 }
 
-# The website's back end: magic-link sign-in, self-service keys and mock
-# purchases.
+# The website's back end: magic-link sign-in, self-service keys, and Stripe
+# Checkout with its webhook.
 module "account" {
   source                         = "./modules/functionapp"
   resource_group_id              = data.azurerm_resource_group.this.id
@@ -224,7 +229,8 @@ module "account" {
   maximum_instance_count         = var.function_max_instances
   app_insights_connection_string = module.monitoring.app_insights_connection_string
   subnet_id                      = try(local.subnet_ids.account, null)
-  cors_allowed_origins           = [local.site_url]
+  # Both hosts keep working when a custom domain is set.
+  cors_allowed_origins = distinct([local.default_site_url, local.site_url])
   app_settings = {
     STORAGE_ACCOUNT_URL   = local.storage_account_url
     BILLING_CONTAINER     = local.billing_container
@@ -235,12 +241,14 @@ module "account" {
     EMAIL_MODE            = "acs"
     ACS_ENDPOINT          = module.email.endpoint
     EMAIL_SENDER          = module.email.sender
-    PAYMENTS_MODE         = "mock"
     PACKS                 = jsonencode(var.credit_packs)
     FREE_CREDITS          = tostring(var.free_credits_per_account)
     MAX_KEYS              = tostring(var.max_keys_per_account)
+    MAX_ACCOUNT_CREDITS   = tostring(var.max_credits_per_account)
     FREE_CREDITS_SECRET   = random_password.free_credits.result
-    MOCK_TOKENS_PASSWORD  = var.mock_tokens_password
+    STRIPE_API_KEY        = var.stripe_api_key
+    STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
+    PAYMENTS_TEST_MODE    = tostring(var.env != "prod")
   }
   tags       = local.tags
   depends_on = [module.roles]

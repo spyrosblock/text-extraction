@@ -21,6 +21,9 @@ var (
 	ErrUnknownKey = errors.New("unknown api key")
 	// ErrBusy is returned when a balance kept changing under every retry.
 	ErrBusy = errors.New("too many concurrent balance updates")
+	// ErrUnknownOrder is returned by DebitOrder for an order that isn't in
+	// the key's orders.
+	ErrUnknownOrder = errors.New("unknown order")
 )
 
 // InsufficientError is returned by Charge when the balance doesn't cover
@@ -61,6 +64,12 @@ type Order struct {
 	Pack      string    `json:"pack"`
 	Credits   int64     `json:"credits"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Debited is the credits already taken back for the order, after a
+	// refund or a lost dispute.
+	Debited int64 `json:"debited,omitempty"`
+	// OverCap marks an order that would have taken the account over its
+	// credit cap: it was refunded instead of credited, and Credits is 0.
+	OverCap bool `json:"overCap,omitempty"`
 }
 
 // ListedKey is a Key with its id, as returned by List.
@@ -194,6 +203,57 @@ func (s *Store) CreditOrder(ctx context.Context, id, orderID, pack string, credi
 		return 0, false, err
 	}
 	return k.Credits, true, nil
+}
+
+// RefuseOrder records the purchase orderID in the key's orders as OverCap,
+// with no credits, unless the order is there already. It returns the order
+// as recorded: OverCap is false if it had been credited before.
+func (s *Store) RefuseOrder(ctx context.Context, id, orderID, pack string) (Order, error) {
+	k, err := s.update(ctx, id, func(k *Key) error {
+		if _, ok := k.Orders[orderID]; ok {
+			return errUnchanged
+		}
+		if k.Orders == nil {
+			k.Orders = map[string]Order{}
+		}
+		k.Orders[orderID] = Order{Pack: pack, CreatedAt: time.Now().UTC(), OverCap: true}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errUnchanged) {
+		return Order{}, err
+	}
+	return k.Orders[orderID], nil
+}
+
+// DebitOrder takes credits back from the key for a refunded or disputed
+// order. total is the credits that should be taken back for the order in
+// all, capped at the order's credits: it debits total minus what was
+// debited before, if that is above 0, so a repeated or out-of-order event
+// debits nothing more. The balance may go negative. It returns
+// ErrUnknownOrder for an order that isn't in the key's orders, and the
+// balance and the order's debited credits afterwards.
+func (s *Store) DebitOrder(ctx context.Context, id, orderID string, total int64) (balance, debited int64, err error) {
+	k, err := s.update(ctx, id, func(k *Key) error {
+		o, ok := k.Orders[orderID]
+		if !ok {
+			return ErrUnknownOrder
+		}
+		total = min(total, o.Credits)
+		if total <= o.Debited {
+			return errUnchanged
+		}
+		k.Credits -= total - o.Debited
+		o.Debited = total
+		k.Orders[orderID] = o
+		return nil
+	})
+	if errors.Is(err, errUnchanged) {
+		err = nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	return k.Credits, k.Orders[orderID].Debited, nil
 }
 
 // errUnchanged stops an update without writing.

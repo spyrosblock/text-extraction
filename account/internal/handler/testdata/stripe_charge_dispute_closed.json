@@ -1,0 +1,29 @@
+{
+  "id": "evt_1SNhZ9Gx8KbqW3cZfGhIjKlM",
+  "object": "event",
+  "api_version": "2026-10-28.endive",
+  "created": 1793470000,
+  "data": {
+    "object": {
+      "id": "dp_1SNhX4Gx8KbqW3cZnOpQrStU",
+      "object": "dispute",
+      "amount": 1240,
+      "balance_transactions": [],
+      "charge": "ch_3SNhSzGx8KbqW3cZ0HiJkLmN",
+      "created": 1793460500,
+      "currency": "eur",
+      "evidence_details": {"due_by": 1794233599, "has_evidence": false, "past_due": false, "submission_count": 1},
+      "is_charge_refundable": false,
+      "livemode": false,
+      "metadata": {},
+      "payment_intent": "pi_3SNhSzGx8KbqW3cZ0aBcDeFg",
+      "reason": "fraudulent",
+      "status": "lost"
+    },
+    "previous_attributes": {"status": "under_review"}
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {"id": null, "idempotency_key": null},
+  "type": "charge.dispute.closed"
+}

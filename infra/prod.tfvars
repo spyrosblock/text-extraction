@@ -11,3 +11,20 @@ key_prefix                = "tx_prod_"
 log_daily_quota_gb     = 5
 function_max_instances = 40
 ocr_max_executions     = 10
+
+# Stripe live mode (PLAN2_3). Fill in the live-mode Price ids; price_eur
+# must equal each Price's amount.
+credit_packs = {
+  starter = { credits = 2000, price_eur = 10, price_id = "" }
+  pro     = { credits = 12000, price_eur = 50, price_id = "" }
+}
+prices_include_vat = true
+
+# Custom domains (Launch checklist step 5). Set web_domain once the www CNAME
+# points to the webHostName output. After the first apply with email_domain,
+# add the emailDnsRecords output and a DMARC record at the registrar, verify
+# the domain in Azure, then set email_domain_verified = true.
+web_domain            = ""
+email_domain          = ""
+email_domain_verified = false
+contact_email         = ""

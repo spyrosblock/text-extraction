@@ -9,7 +9,7 @@
   <script src="app.js" defer></script>
 </head>
 <body data-page="index">
-  <div class="banner">Test mode: payments are simulated and no money is taken.</div>
+  <div class="banner" data-test-banner hidden>Test mode: pay with the test card 4242 4242 4242 4242; no money is taken.</div>
   <header>
     <a class="brand" href="index.html">text-extraction</a>
     <nav>
@@ -34,12 +34,13 @@
       can't be read.</p>
 
     <h2>Credit packs</h2>
-    <div class="cards">
+    <div id="packs" class="cards">
       <div class="card"><strong>Starter</strong>2,000 credits · €10</div>
       <div class="card"><strong>Pro</strong>12,000 credits · €50</div>
     </div>
-    <p class="small muted">Test mode: purchases are simulated, no card is asked for and no money
-      moves.</p>
+    <p id="vat-note" class="small muted"></p>
+    <p class="small muted">Buy packs for a key on your dashboard. Credits don't expire; see the
+      <a href="terms.html">terms</a> and the <a href="refunds.html">refund policy</a>.</p>
 
     <h2>Quick start</h2>
     <p>1. Submit a PDF with your key. The response has a <code>request_id</code>, the credits
@@ -52,6 +53,9 @@
       <code>"-"</code> for text from the text layer, Tesseract's confidence (0–100) for OCRed
       pages. Text is kept for a day.</p>
   </main>
-  <footer>text-extraction · <a href="privacy.html">Privacy</a></footer>
+  <footer>
+    text-extraction · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+    <a href="refunds.html">Refunds</a> · Contact: <span data-contact></span>
+  </footer>
 </body>
 </html>

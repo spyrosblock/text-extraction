@@ -1,0 +1,35 @@
+{
+  "id": "evt_3SNhW1Gx8KbqW3cZ1mNoPqRs",
+  "object": "event",
+  "api_version": "2026-10-28.endive",
+  "created": 1793460000,
+  "data": {
+    "object": {
+      "id": "ch_3SNhSzGx8KbqW3cZ0HiJkLmN",
+      "object": "charge",
+      "amount": 1240,
+      "amount_captured": 1240,
+      "amount_refunded": 620,
+      "balance_transaction": "txn_3SNhSzGx8KbqW3cZ0OpQrStU",
+      "captured": true,
+      "created": 1793449990,
+      "currency": "eur",
+      "customer": null,
+      "description": null,
+      "disputed": false,
+      "livemode": false,
+      "metadata": {},
+      "paid": true,
+      "payment_intent": "pi_3SNhSzGx8KbqW3cZ0aBcDeFg",
+      "payment_method": "pm_1SNhSyGx8KbqW3cZvWxYzAbC",
+      "receipt_email": null,
+      "refunded": false,
+      "status": "succeeded"
+    },
+    "previous_attributes": {"amount_refunded": 0}
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {"id": "req_Vw3xY4zA5bC6dE", "idempotency_key": "6f0c8a2e-3b1d-4c5e-9f7a-8b2c1d0e3f4a"},
+  "type": "charge.refunded"
+}

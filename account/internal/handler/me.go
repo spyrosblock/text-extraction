@@ -14,13 +14,20 @@ type prices struct {
 	OCRPage  int64 `json:"ocr_page"`
 }
 
+// publicPack is a Pack as the website sees it, without its Stripe price.
+type publicPack struct {
+	Credits  int64   `json:"credits"`
+	PriceEUR float64 `json:"price_eur"`
+}
+
 type meResponse struct {
-	Email                string          `json:"email"`
-	Payments             string          `json:"payments"`
-	Prices               prices          `json:"prices"`
-	Packs                map[string]Pack `json:"packs"`
-	MaxKeys              int             `json:"max_keys"`
-	FreeCreditsAvailable int64           `json:"free_credits_available"`
+	Email                string                `json:"email"`
+	TestMode             bool                  `json:"test_mode"`
+	Prices               prices                `json:"prices"`
+	Packs                map[string]publicPack `json:"packs"`
+	MaxKeys              int                   `json:"max_keys"`
+	MaxCredits           int64                 `json:"max_credits"`
+	FreeCreditsAvailable int64                 `json:"free_credits_available"`
 }
 
 // Me serves /api/me for the signed-in account:
@@ -52,12 +59,17 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request, s session) {
 			free = h.FreeCredits
 		}
 	}
+	packs := make(map[string]publicPack, len(h.Packs))
+	for name, p := range h.Packs {
+		packs[name] = publicPack{Credits: p.Credits, PriceEUR: p.PriceEUR}
+	}
 	writeJSON(w, http.StatusOK, meResponse{
 		Email:                s.account.Email,
-		Payments:             h.PaymentsMode,
+		TestMode:             h.TestMode,
 		Prices:               prices{TextPage: h.Store.TextPageCredits, OCRPage: h.Store.OCRPageCredits},
-		Packs:                h.Packs,
+		Packs:                packs,
 		MaxKeys:              h.MaxKeys,
+		MaxCredits:           h.MaxCredits,
 		FreeCreditsAvailable: free,
 	})
 }

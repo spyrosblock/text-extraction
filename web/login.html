@@ -9,7 +9,7 @@
   <script src="app.js" defer></script>
 </head>
 <body data-page="login">
-  <div class="banner">Test mode: payments are simulated and no money is taken.</div>
+  <div class="banner" data-test-banner hidden>Test mode: pay with the test card 4242 4242 4242 4242; no money is taken.</div>
   <header>
     <a class="brand" href="index.html">text-extraction</a>
     <nav>
@@ -27,6 +27,9 @@
     </form>
     <p id="login-message" class="message" hidden></p>
   </main>
-  <footer>text-extraction · <a href="privacy.html">Privacy</a></footer>
+  <footer>
+    text-extraction · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+    <a href="refunds.html">Refunds</a> · Contact: <span data-contact></span>
+  </footer>
 </body>
 </html>

@@ -34,7 +34,7 @@ shared `billing` module (`../billing`, also used by the account app):
 
 | Blob | Content |
 | --- | --- |
-| `keys/<id>.json` | `{"name","credits","createdAt","accountId","hint","orders"}`; `id` is the hex sha256 of the key, which itself is never stored. `accountId` (the owner; empty for keys issued here), `hint` (the key's last 4 characters) and `orders` (purchases credited to the key) are optional and kept by every charge. |
+| `keys/<id>.json` | `{"name","credits","createdAt","accountId","hint","orders"}`; `id` is the hex sha256 of the key, which itself is never stored. `accountId` (the owner; empty for keys issued here), `hint` (the key's last 4 characters) and `orders` (purchases credited to the key, by order id (a Stripe PaymentIntent id; a UUID for old mock purchases), each `{"pack","credits","createdAt","debited","overCap"}`; `debited` is what refunds and lost disputes took back; `overCap` marks an order refunded instead of credited because it would have taken the account over its credit cap, with `credits` 0) are optional and kept by every charge. |
 | `jobs/<job id>.json` | `{"keyId","pages","ocrPages","credits","createdAt"}`, so the consumer only serves a job to its key; deleted after a day |
 
 Balance changes read the key blob and write it back with its ETag (`If-Match`), retrying up to 5

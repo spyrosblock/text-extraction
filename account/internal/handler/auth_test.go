@@ -12,7 +12,7 @@ import (
 )
 
 func TestSignIn(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	w := e.call("POST", "/api/auth/start", "", `{"email":"  Ann@Example.COM "}`)
 	if w.Code != http.StatusAccepted || w.Body.Len() != 0 {
 		t.Fatalf("start: %d %s", w.Code, w.Body)
@@ -61,7 +61,7 @@ func TestSignIn(t *testing.T) {
 }
 
 func TestStartMalformed(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	for _, body := range []string{
 		`{"email":""}`,
 		`{"email":"ann"}`,
@@ -85,7 +85,7 @@ func TestStartMalformed(t *testing.T) {
 
 // Failures to send don't show in the response.
 func TestStartSendFails(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	e.mail.err = errors.New("acs down")
 	if w := e.call("POST", "/api/auth/start", "", `{"email":"ann@example.com"}`); w.Code != http.StatusAccepted {
 		t.Errorf("start: %d", w.Code)
@@ -93,7 +93,7 @@ func TestStartSendFails(t *testing.T) {
 }
 
 func TestStartRateLimits(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	start := func(addr, ip string) {
 		t.Helper()
 		w := e.call("POST", "/api/auth/start", "", `{"email":"`+addr+`"}`, "X-Forwarded-For", ip)
@@ -130,7 +130,7 @@ func TestStartRateLimits(t *testing.T) {
 }
 
 func TestVerifyExpired(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	e.call("POST", "/api/auth/start", "", `{"email":"ann@example.com"}`)
 	token := e.mail.lastToken(t)
 	e.clock.advance(15 * time.Minute)
@@ -146,7 +146,7 @@ func TestVerifyExpired(t *testing.T) {
 
 // Parallel verifies of one link: one session.
 func TestVerifyParallel(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	e.call("POST", "/api/auth/start", "", `{"email":"ann@example.com"}`)
 	token := e.mail.lastToken(t)
 	var ok atomic.Int32
@@ -178,7 +178,7 @@ func TestVerifyParallel(t *testing.T) {
 }
 
 func TestLogout(t *testing.T) {
-	e := newEnv()
+	e := newEnv(t)
 	s1 := e.signIn(t, "ann@example.com")
 	s2 := e.signIn(t, "ann@example.com")
 	if w := e.call("POST", "/api/auth/logout", s1, ""); w.Code != http.StatusNoContent {

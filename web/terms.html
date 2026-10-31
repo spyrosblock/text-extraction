@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terms · text-extraction</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="terms">
+  <div class="banner" data-test-banner hidden>Test mode: pay with the test card 4242 4242 4242 4242; no money is taken.</div>
+  <header>
+    <a class="brand" href="index.html">text-extraction</a>
+    <nav>
+      <a href="login.html" data-signed-out>Sign in</a>
+      <a href="dashboard.html" data-signed-in hidden>Dashboard</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Terms of service</h1>
+    <p class="small muted">Last updated: 31 October 2026</p>
+    <p>These terms apply to the text-extraction API and this website (the "service"). The service
+      is run by <strong class="todo">[operator: your full name or business name, address and
+      Greek tax number (ΑΦΜ)]</strong> ("we"). By creating an API key or buying credits you agree to
+      them.</p>
+
+    <h2>The service</h2>
+    <p>You send PDFs to the API with an API key and get the text of their pages back. Pages with a
+      text layer are read directly; scanned pages are read with OCR. OCR can make mistakes, so check
+      the text where accuracy matters.</p>
+
+    <h2>Accounts and API keys</h2>
+    <ul>
+      <li>You sign in with your email address. Keep your API keys secret: anyone with a key can
+        spend its credits.</li>
+      <li>You are responsible for what is sent with your keys. Revoke a key on the dashboard if you
+        think it has leaked.</li>
+    </ul>
+
+    <h2>Credits</h2>
+    <ul>
+      <li>The API is paid for with prepaid credits. Each PDF costs credits per page, at the prices on
+        the <a href="index.html">home page</a>, and is charged when you submit it.</li>
+      <li>Credits belong to the API key they were bought for. <strong>They don't expire.</strong></li>
+      <li>The first key of an email address comes with free credits, once.</li>
+      <li>Revoking a key, or deleting your account, forfeits the credits on it.</li>
+      <li>An account can hold a limited number of credits, summed over its keys; the limit is shown
+        when you buy, and you can't buy a pack that would take the account over it. If several
+        payments are made at once and one would go over, that payment is refunded in full
+        automatically and its credits aren't added.</li>
+      <li>Credits have no cash value and can't be resold. They are refunded only as described in the
+        <a href="refunds.html">refund policy</a>.</li>
+      <li>If a refund or a chargeback takes back credits you have already spent, the key's balance
+        goes negative and the key stops working until it is topped up.</li>
+    </ul>
+
+    <h2>Payments</h2>
+    <p>Credit packs are sold through Stripe's Managed Payments: <strong>Stripe, through Link, is the
+      merchant of record</strong>. You buy the credits from Link, which takes your payment on Stripe's
+      page, charges any VAT due, sends your receipt and invoice, and answers questions about the
+      payment. Link's own terms apply to the purchase. We never see your card details. Prices are in
+      euros.</p>
+
+    <h2>Acceptable use</h2>
+    <p>Don't use the service:</p>
+    <ul>
+      <li>for documents you have no right to process, or whose content is illegal;</li>
+      <li>to break the law or anyone else's rights;</li>
+      <li>to overload, probe or disrupt it, or to get around its limits or billing.</li>
+    </ul>
+    <p>We may suspend a key or account that breaks these rules. If we close an account without such
+      a reason, we refund the paid credits left on it.</p>
+
+    <h2>Your documents</h2>
+    <p>Your documents and their text remain yours. We process them only to provide the service and
+      keep them only as long as the <a href="privacy.html">privacy page</a> says.</p>
+
+    <h2>Availability</h2>
+    <p>We try to keep the service running and fast, but we don't guarantee any availability or
+      response time: there is no service-level agreement. We may change the service or its prices;
+      a change of price doesn't affect credits already bought.</p>
+
+    <h2>Liability</h2>
+    <p>The service is provided as it is. To the extent the law allows, we are not liable for
+      indirect or consequential losses, or for lost data or profits, and our total liability is
+      limited to what you paid us in the 12 months before the claim. Nothing in these terms limits
+      liability for intent or gross negligence, or any rights you have as a consumer that can't be
+      waived.</p>
+
+    <h2>Changes to these terms</h2>
+    <p>We may update these terms. For significant changes we tell you by email or on this site
+      before they take effect. If you don't agree, you can stop using the service and ask for a
+      refund of your unused paid credits.</p>
+
+    <h2>Law</h2>
+    <p>These terms are governed by Greek law, and the courts of Greece decide disputes. If you are a
+      consumer, you also keep the protection of the mandatory laws of the country where you live and
+      can bring proceedings there.</p>
+
+    <h2>Contact</h2>
+    <p>Write to <span data-contact></span>.</p>
+  </main>
+  <footer>
+    text-extraction · <a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a> ·
+    <a href="refunds.html">Refunds</a> · Contact: <span data-contact></span>
+  </footer>
+</body>
+</html>

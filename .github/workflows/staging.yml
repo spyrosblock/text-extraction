@@ -99,8 +99,11 @@ jobs:
       FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr' }}
       OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr' }}
       WEB: ${{ inputs.target == 'all' || inputs.target == 'web' }}
-      # Needed by every mock purchase (PLAN2_2); unset = purchases off.
-      TF_VAR_mock_tokens_password: ${{ secrets.MOCK_TOKENS_PASSWORD }}
+      # Stripe (PLAN2_3): the restricted key (rk_test_… in staging, rk_live_…
+      # in prod) and the webhook endpoint's signing secret. Without the key
+      # checkout answers 503; without the secret the account app won't start.
+      TF_VAR_stripe_api_key: ${{ secrets.STRIPE_API_KEY }}
+      TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       # Terraform signs in with the job's OIDC token, for the providers and
       # the state backend alike.
       ARM_USE_OIDC: true
@@ -110,6 +113,22 @@ jobs:
       TF_IN_AUTOMATION: true
       TF_INPUT: false
     steps:
+      # An apply without it would ship an account app that refuses to start.
+      - name: Check Stripe secrets
+        if: env.INFRA == 'true'
+        run: |
+          if [[ -z "$TF_VAR_stripe_webhook_secret" ]]; then
+            echo "::error::The $ENV environment has no STRIPE_WEBHOOK_SECRET. Create the Stripe webhook endpoint (README: Payments) and set the secret first."
+            exit 1
+          fi
+          # Test mode in staging, live mode in prod; the app checks it too.
+          mode=$([[ "$ENV" == prod ]] && echo live || echo test)
+          if [[ -z "$TF_VAR_stripe_api_key" ]]; then
+            echo "::warning::No STRIPE_API_KEY in the $ENV environment: checkout will answer 503."
+          elif [[ "$TF_VAR_stripe_api_key" != rk_${mode}_* ]]; then
+            echo "::error::STRIPE_API_KEY in the $ENV environment must be a $mode-mode restricted key (rk_${mode}_…)."
+            exit 1
+          fi
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
         with:
