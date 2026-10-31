@@ -31,8 +31,8 @@ set -euo pipefail
 
 RG=${1:?usage: $0 <resource-group>}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-TEXT_PDF=${TEXT_PDF:-$ROOT/test1.pdf}
-SCANNED_PDF=${SCANNED_PDF:-$ROOT/test2.pdf}
+TEXT_PDF=${TEXT_PDF:-$ROOT/samples/text.pdf}
+SCANNED_PDF=${SCANNED_PDF:-$ROOT/samples/scanned.pdf}
 TEXT_TIMEOUT=${TEXT_TIMEOUT:-60}
 # KEDA polls every 30 s, then the execution pulls the image and OCRs every page.
 OCR_TIMEOUT=${OCR_TIMEOUT:-1200}
