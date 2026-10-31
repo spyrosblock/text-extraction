@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/spyrosblock/text-extraction/billing"
 	"github.com/spyrosblock/text-extraction/producer/internal/contract"
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 	"github.com/spyrosblock/text-extraction/producer/internal/extract"
 )
 
@@ -77,7 +77,7 @@ type Handler struct {
 	Extractor     Extractor
 	Blobs         BlobStore
 	Queue         Queue
-	Credits       *credits.Store
+	Credits       *billing.Store
 	PDFContainer  string
 	TextContainer string
 }
@@ -98,7 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Reject unknown and empty keys before reading the PDF. Nothing is
 	// charged yet: the cost depends on the pages.
 	keyID, key, err := h.Credits.Lookup(ctx, r.Header.Get(APIKeyHeader))
-	if errors.Is(err, credits.ErrUnknownKey) {
+	if errors.Is(err, billing.ErrUnknownKey) {
 		writeError(w, http.StatusUnauthorized, "missing or unknown api key")
 		return
 	}
@@ -139,15 +139,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log := slog.With("id", id, "keyId", keyID, "pages", len(pages), "ocrPages", ocrPages, "bytes", len(pdf))
 
 	balance, err := h.Credits.Charge(ctx, keyID, cost)
-	var short *credits.InsufficientError
+	var short *billing.InsufficientError
 	switch {
 	case errors.As(err, &short):
 		writeJSON(w, http.StatusPaymentRequired, creditsResponse{Error: "not enough credits", Required: short.Required, Balance: short.Balance})
 		return
-	case errors.Is(err, credits.ErrUnknownKey): // revoked meanwhile
+	case errors.Is(err, billing.ErrUnknownKey): // revoked meanwhile
 		writeError(w, http.StatusUnauthorized, "missing or unknown api key")
 		return
-	case errors.Is(err, credits.ErrBusy):
+	case errors.Is(err, billing.ErrBusy):
 		writeError(w, http.StatusServiceUnavailable, "too many concurrent requests for this api key, retry")
 		return
 	case err != nil:
@@ -158,7 +158,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Usage history: one line per charged job, queryable in App Insights.
 	log.InfoContext(ctx, "charged", "credits", cost, "balance", balance)
 
-	job := credits.Job{KeyID: keyID, Pages: len(pages), OCRPages: ocrPages, Credits: cost, CreatedAt: time.Now().UTC()}
+	job := billing.Job{KeyID: keyID, Pages: len(pages), OCRPages: ocrPages, Credits: cost, CreatedAt: time.Now().UTC()}
 	if err := h.Credits.RecordJob(ctx, id, job); err != nil {
 		log.ErrorContext(ctx, "record job", "error", err)
 		writeError(w, http.StatusInternalServerError, "could not record job")

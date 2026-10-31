@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spyrosblock/text-extraction/producer/internal/blobtest"
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/billing"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 )
 
-func newAdmin() (*Admin, *blobtest.Fake) {
-	b := &blobtest.Fake{}
+func newAdmin() (*Admin, *blobs.Fake) {
+	b := &blobs.Fake{}
 	return &Admin{Credits: newStore(b)}, b
 }
 
@@ -33,7 +33,7 @@ func TestAdminCreateKey(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(resp.Key, "tx_test_") || resp.ID != credits.KeyID(resp.Key) || resp.Name != "acme" || resp.Credits != 2000 {
+	if !strings.HasPrefix(resp.Key, "tx_test_") || resp.ID != billing.KeyID(resp.Key) || resp.Name != "acme" || resp.Credits != 2000 {
 		t.Errorf("resp = %+v", resp)
 	}
 	if blobs.Data("billing", "keys/"+resp.ID+".json") == nil {
@@ -47,7 +47,7 @@ func TestAdminCreateKey(t *testing.T) {
 
 func TestAdminListSetAddRevoke(t *testing.T) {
 	a, _ := newAdmin()
-	key, id, _, err := a.Credits.Create(context.Background(), "acme", 10)
+	key, id, _, err := a.Credits.Create(context.Background(), "acme", 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestAdminListSetAddRevoke(t *testing.T) {
 	}
 
 	w := call(a.Keys, http.MethodGet, "/api/manage/keys", "")
-	var list []credits.ListedKey
+	var list []billing.ListedKey
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if w.Code != http.StatusOK || len(list) != 1 || list[0].ID != id || list[0].Name != "acme" || list[0].Credits != 10 {
 		t.Fatalf("list: %d %s", w.Code, w.Body)
@@ -80,7 +80,7 @@ func TestAdminListSetAddRevoke(t *testing.T) {
 	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?key_id="+id, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("revoke: %d %s", w.Code, w.Body)
 	}
-	if _, _, err := a.Credits.Lookup(context.Background(), key); err != credits.ErrUnknownKey {
+	if _, _, err := a.Credits.Lookup(context.Background(), key); err != billing.ErrUnknownKey {
 		t.Errorf("Lookup after revoke err = %v", err)
 	}
 	if w := call(a.Keys, http.MethodDelete, "/api/manage/keys?key_id="+id, ""); w.Code != http.StatusNotFound {
@@ -91,9 +91,23 @@ func TestAdminListSetAddRevoke(t *testing.T) {
 	}
 }
 
+func TestAdminListShowsAccount(t *testing.T) {
+	a, _ := newAdmin()
+	key, id, _, err := a.Credits.Create(context.Background(), "web", 0, "acct-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := call(a.Keys, http.MethodGet, "/api/manage/keys", "")
+	var list []map[string]any
+	json.Unmarshal(w.Body.Bytes(), &list)
+	if len(list) != 1 || list[0]["key_id"] != id || list[0]["accountId"] != "acct-1" || list[0]["hint"] != key[len(key)-4:] {
+		t.Fatalf("list: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestAdminBadRequests(t *testing.T) {
 	a, _ := newAdmin()
-	id := credits.KeyID("whatever")
+	id := billing.KeyID("whatever")
 	tests := []struct {
 		name        string
 		f           http.HandlerFunc

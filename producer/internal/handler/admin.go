@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
+	"github.com/spyrosblock/text-extraction/billing"
 )
 
 // maxAdminBody bounds admin request bodies.
@@ -15,7 +15,7 @@ const maxAdminBody = 1 << 10
 // Admin issues API keys and manages their credits. Its endpoints use the
 // function app's master key (admin auth level); infra/keys.sh wraps them.
 type Admin struct {
-	Credits *credits.Store
+	Credits *billing.Store
 }
 
 type keyResponse struct {
@@ -45,7 +45,7 @@ func (a *Admin) Keys(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, `body must be {"name": "<name>", "credits": <credits ≥ 0>}`)
 			return
 		}
-		key, id, k, err := a.Credits.Create(ctx, req.Name, *req.Credits)
+		key, id, k, err := a.Credits.Create(ctx, req.Name, *req.Credits, "")
 		if err != nil {
 			a.fail(w, r, "create key", err)
 			return
@@ -89,7 +89,7 @@ func (a *Admin) Balance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		k   credits.Key
+		k   billing.Key
 		err error
 	)
 	switch r.Method {
@@ -126,14 +126,14 @@ func (a *Admin) Balance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.InfoContext(ctx, "credits updated", "keyId", id, "credits", k.Credits)
-	writeJSON(w, http.StatusOK, credits.ListedKey{ID: id, Key: k})
+	writeJSON(w, http.StatusOK, billing.ListedKey{ID: id, Key: k})
 }
 
 func (a *Admin) fail(w http.ResponseWriter, r *http.Request, action string, err error) {
 	switch {
-	case errors.Is(err, credits.ErrUnknownKey):
+	case errors.Is(err, billing.ErrUnknownKey):
 		writeError(w, http.StatusNotFound, "no key with this id")
-	case errors.Is(err, credits.ErrBusy):
+	case errors.Is(err, billing.ErrBusy):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		slog.ErrorContext(r.Context(), action, "error", err)
@@ -143,7 +143,7 @@ func (a *Admin) fail(w http.ResponseWriter, r *http.Request, action string, err 
 
 func queryID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	id := r.URL.Query().Get("key_id")
-	if !credits.ValidID(id) {
+	if !billing.ValidID(id) {
 		writeError(w, http.StatusBadRequest, "key_id must be a key id (64 lowercase hex characters)")
 		return "", false
 	}

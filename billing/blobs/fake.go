@@ -1,5 +1,4 @@
-// Package blobtest is an in-memory stand-in for azure.Blobs in unit tests.
-package blobtest
+package blobs
 
 import (
 	"context"
@@ -7,26 +6,27 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/spyrosblock/text-extraction/producer/internal/azure"
 )
 
-// Fake keeps blobs in memory under "container/name". It is safe for
-// concurrent use.
+// Fake is an in-memory stand-in for Blobs in unit tests. It keeps blobs
+// under "container/name", each with an ETag that changes on every write, and
+// is safe for concurrent use.
 type Fake struct {
 	mu      sync.Mutex
-	blobs   map[string]blob
+	blobs   map[string]fakeBlob
 	etag    int
 	Deleted []string
 
-	// UploadErr, when set, is returned by Upload for blobs in that container.
+	// UploadErr, when set, is returned by Upload and UploadIf for blobs
+	// whose "container/name" starts with the key, e.g. "text-storage" or
+	// "billing/accounts/".
 	UploadErr map[string]error
 	// BeforeUploadIf, when set, runs before every conditional upload, so a
 	// test can change the blob in between (a concurrent writer).
 	BeforeUploadIf func(container, name string)
 }
 
-type blob struct {
+type fakeBlob struct {
 	data []byte
 	etag string
 }
@@ -59,14 +59,23 @@ func (f *Fake) Names() []string {
 
 func (f *Fake) put(key string, data []byte) {
 	if f.blobs == nil {
-		f.blobs = map[string]blob{}
+		f.blobs = map[string]fakeBlob{}
 	}
 	f.etag++
-	f.blobs[key] = blob{data: data, etag: strconv.Itoa(f.etag)}
+	f.blobs[key] = fakeBlob{data: data, etag: strconv.Itoa(f.etag)}
+}
+
+func (f *Fake) uploadErr(container, name string) error {
+	for prefix, err := range f.UploadErr {
+		if strings.HasPrefix(container+"/"+name, prefix) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (f *Fake) Upload(_ context.Context, container, name string, data []byte, _ string) error {
-	if err := f.UploadErr[container]; err != nil {
+	if err := f.uploadErr(container, name); err != nil {
 		return err
 	}
 	f.Put(container, name, data)
@@ -74,6 +83,9 @@ func (f *Fake) Upload(_ context.Context, container, name string, data []byte, _ 
 }
 
 func (f *Fake) UploadIf(_ context.Context, container, name string, data []byte, _, ifMatch string) error {
+	if err := f.uploadErr(container, name); err != nil {
+		return err
+	}
 	if f.BeforeUploadIf != nil {
 		f.BeforeUploadIf(container, name)
 	}
@@ -81,7 +93,7 @@ func (f *Fake) UploadIf(_ context.Context, container, name string, data []byte, 
 	defer f.mu.Unlock()
 	b, ok := f.blobs[container+"/"+name]
 	if ifMatch == "" && ok || ifMatch != "" && (!ok || b.etag != ifMatch) {
-		return azure.ErrConditionNotMet
+		return ErrConditionNotMet
 	}
 	f.put(container+"/"+name, data)
 	return nil
@@ -92,7 +104,7 @@ func (f *Fake) Get(_ context.Context, container, name string) ([]byte, string, e
 	defer f.mu.Unlock()
 	b, ok := f.blobs[container+"/"+name]
 	if !ok {
-		return nil, "", azure.ErrNotFound
+		return nil, "", ErrNotFound
 	}
 	return b.data, b.etag, nil
 }
@@ -112,8 +124,23 @@ func (f *Fake) Delete(_ context.Context, container, name string) error {
 	defer f.mu.Unlock()
 	f.Deleted = append(f.Deleted, container+"/"+name)
 	if _, ok := f.blobs[container+"/"+name]; !ok {
-		return azure.ErrNotFound
+		return ErrNotFound
 	}
+	delete(f.blobs, container+"/"+name)
+	return nil
+}
+
+func (f *Fake) DeleteIf(_ context.Context, container, name, ifMatch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.blobs[container+"/"+name]
+	if !ok {
+		return ErrNotFound
+	}
+	if b.etag != ifMatch {
+		return ErrConditionNotMet
+	}
+	f.Deleted = append(f.Deleted, container+"/"+name)
 	delete(f.blobs, container+"/"+name)
 	return nil
 }

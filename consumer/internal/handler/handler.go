@@ -125,7 +125,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // keyID returns the id of an API key: the hex sha256 of the key. It must
-// match credits.KeyID in the producer; keep them in sync.
+// match billing.KeyID in the producer; keep them in sync.
 func keyID(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:])

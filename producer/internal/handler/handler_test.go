@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spyrosblock/text-extraction/producer/internal/blobtest"
+	"github.com/spyrosblock/text-extraction/billing"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 	"github.com/spyrosblock/text-extraction/producer/internal/contract"
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 	"github.com/spyrosblock/text-extraction/producer/internal/extract"
 )
 
@@ -47,15 +47,15 @@ const startCredits = 100
 // apiKey is valid in every handler from newHandler.
 var apiKey string
 
-func newStore(b *blobtest.Fake) *credits.Store {
-	return &credits.Store{Blobs: b, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5}
+func newStore(b *blobs.Fake) *billing.Store {
+	return &billing.Store{Blobs: b, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5}
 }
 
-func newHandler(t *testing.T, ex Extractor) (*Handler, *blobtest.Fake, *fakeQueue) {
+func newHandler(t *testing.T, ex Extractor) (*Handler, *blobs.Fake, *fakeQueue) {
 	t.Helper()
-	b, q := &blobtest.Fake{}, &fakeQueue{}
+	b, q := &blobs.Fake{}, &fakeQueue{}
 	store := newStore(b)
-	key, _, _, err := store.Create(context.Background(), "test", startCredits)
+	key, _, _, err := store.Create(context.Background(), "test", startCredits, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func balance(t *testing.T, h *Handler) int64 {
 }
 
 // uploads returns the blobs written outside the billing container.
-func uploads(b *blobtest.Fake) []string {
+func uploads(b *blobs.Fake) []string {
 	var names []string
 	for _, n := range b.Names() {
 		if !strings.HasPrefix(n, "billing/") {
@@ -214,11 +214,11 @@ func TestRecordsJob(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("got %d %s", w.Code, w.Body)
 	}
-	var job credits.Job
-	if err := json.Unmarshal(blobs.Data("billing", credits.JobBlob(resp.ID)), &job); err != nil {
+	var job billing.Job
+	if err := json.Unmarshal(blobs.Data("billing", billing.JobBlob(resp.ID)), &job); err != nil {
 		t.Fatalf("job blob: %v, blobs: %v", err, blobs.Names())
 	}
-	if job.KeyID != credits.KeyID(apiKey) || job.Pages != 2 || job.OCRPages != 1 || job.Credits != 6 || job.CreatedAt.IsZero() {
+	if job.KeyID != billing.KeyID(apiKey) || job.Pages != 2 || job.OCRPages != 1 || job.Credits != 6 || job.CreatedAt.IsZero() {
 		t.Errorf("job = %+v", job)
 	}
 }
@@ -245,7 +245,7 @@ func TestAPIKeyAndCredits(t *testing.T) {
 				pages[i] = contract.Page{Number: i + 1, Text: "x"}
 			}
 			h, blobs, queue := newHandler(t, fakeExtractor{pages: pages})
-			if _, err := h.Credits.Set(context.Background(), credits.KeyID(apiKey), tt.balance); err != nil {
+			if _, err := h.Credits.Set(context.Background(), billing.KeyID(apiKey), tt.balance); err != nil {
 				t.Fatal(err)
 			}
 			r := rawRequest(fakePDF)
@@ -279,7 +279,7 @@ func TestRejectsBeforeReadingBody(t *testing.T) {
 	for name, balance := range map[string]int64{"unknown key": startCredits, "no credits": 0} {
 		t.Run(name, func(t *testing.T) {
 			h, _, _ := newHandler(t, fakeExtractor{err: errors.New("extractor must not be called")})
-			if _, err := h.Credits.Set(context.Background(), credits.KeyID(apiKey), balance); err != nil {
+			if _, err := h.Credits.Set(context.Background(), billing.KeyID(apiKey), balance); err != nil {
 				t.Fatal(err)
 			}
 			body := &trackingReader{r: bytes.NewReader(fakePDF)}

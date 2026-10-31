@@ -1,13 +1,4 @@
-// Package credits keeps the API keys and their credit balances, as JSON blobs
-// in the billing container:
-//
-//	keys/<id>.json   Key, where id = hex sha256 of the API key
-//	jobs/<job>.json  Job, who submitted a job (read by the consumer)
-//
-// The key itself is never stored. Balance changes read the key blob with its
-// ETag and write it back with If-Match, retrying when another request changed
-// it in between, so two requests can't spend the same credits.
-package credits
+package billing
 
 import (
 	"context"
@@ -22,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spyrosblock/text-extraction/producer/internal/azure"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 )
 
 var (
@@ -47,12 +38,27 @@ type BlobStore interface {
 	Upload(ctx context.Context, container, name string, data []byte, contentType string) error
 	UploadIf(ctx context.Context, container, name string, data []byte, contentType, ifMatch string) error
 	Delete(ctx context.Context, container, name string) error
+	DeleteIf(ctx context.Context, container, name, ifMatch string) error
 	List(ctx context.Context, container, prefix string) ([]string, error)
 }
 
-// Key is stored as keys/<id>.json.
+// Key is stored as keys/<id>.json. Every balance change writes the whole
+// blob back, so fields added here are kept by charges.
 type Key struct {
 	Name      string    `json:"name"`
+	Credits   int64     `json:"credits"`
+	CreatedAt time.Time `json:"createdAt"`
+	// AccountID owns the key; empty for keys issued with infra/keys.sh.
+	AccountID string `json:"accountId,omitempty"`
+	// Hint is the key's last characters, to tell keys apart.
+	Hint string `json:"hint,omitempty"`
+	// Orders are the purchases credited to the key, by order id.
+	Orders map[string]Order `json:"orders,omitempty"`
+}
+
+// Order is a purchase credited to a key.
+type Order struct {
+	Pack      string    `json:"pack"`
 	Credits   int64     `json:"credits"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -81,6 +87,9 @@ const keyBytes = 32
 
 // keyChars is the length of keyBytes in base62: 62^43 > 2^256.
 const keyChars = 43
+
+// hintChars is how many of the key's last characters Hint keeps.
+const hintChars = 4
 
 type Store struct {
 	Blobs     BlobStore
@@ -162,29 +171,87 @@ func (s *Store) Add(ctx context.Context, id string, delta int64) (Key, error) {
 	})
 }
 
-// Create issues a new key. The key is only returned here; the store keeps
-// its id.
-func (s *Store) Create(ctx context.Context, name string, credits int64) (key, id string, k Key, err error) {
-	key, err = newKey(s.KeyPrefix)
+// CreditOrder adds credits to the key's balance for the purchase orderID and
+// records it in the key's orders. If the order is already there, it changes
+// nothing and returns credited = false, so a retried purchase is safe.
+// Returns the balance afterwards.
+func (s *Store) CreditOrder(ctx context.Context, id, orderID, pack string, credits int64) (balance int64, credited bool, err error) {
+	k, err := s.update(ctx, id, func(k *Key) error {
+		if _, ok := k.Orders[orderID]; ok {
+			return errUnchanged
+		}
+		if k.Orders == nil {
+			k.Orders = map[string]Order{}
+		}
+		k.Orders[orderID] = Order{Pack: pack, Credits: credits, CreatedAt: time.Now().UTC()}
+		k.Credits += credits
+		return nil
+	})
+	if errors.Is(err, errUnchanged) {
+		return k.Credits, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return k.Credits, true, nil
+}
+
+// errUnchanged stops an update without writing.
+var errUnchanged = errors.New("unchanged")
+
+// Create issues a new key for accountID (empty for an admin-issued key).
+// The key is only returned here; the store keeps its id.
+func (s *Store) Create(ctx context.Context, name string, credits int64, accountID string) (key, id string, k Key, err error) {
+	key, err = s.NewKey()
 	if err != nil {
 		return "", "", Key{}, err
 	}
-	id = KeyID(key)
-	k = Key{Name: name, Credits: credits, CreatedAt: time.Now().UTC()}
-	body, err := json.Marshal(k)
+	id, k, err = s.Insert(ctx, key, name, credits, accountID)
 	if err != nil {
-		return "", "", Key{}, err
-	}
-	if err := s.Blobs.UploadIf(ctx, s.Container, keyBlob(id), body, "application/json", ""); err != nil {
 		return "", "", Key{}, err
 	}
 	return key, id, k, nil
 }
 
+// NewKey returns a new random key, KeyPrefix followed by keyBytes random
+// bytes in base62. Nothing is stored until Insert.
+func (s *Store) NewKey() (string, error) {
+	b := make([]byte, keyBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	n := new(big.Int).SetBytes(b).Text(62)
+	return s.KeyPrefix + strings.Repeat("0", keyChars-len(n)) + n, nil
+}
+
+// Insert stores a key from NewKey. It fails with blobs.ErrConditionNotMet
+// if the key exists already.
+func (s *Store) Insert(ctx context.Context, key, name string, credits int64, accountID string) (string, Key, error) {
+	id := KeyID(key)
+	k := Key{
+		Name: name, Credits: credits, CreatedAt: time.Now().UTC(),
+		AccountID: accountID, Hint: key[max(0, len(key)-hintChars):],
+	}
+	body, err := json.Marshal(k)
+	if err != nil {
+		return "", Key{}, err
+	}
+	if err := s.Blobs.UploadIf(ctx, s.Container, keyBlob(id), body, "application/json", ""); err != nil {
+		return "", Key{}, err
+	}
+	return id, k, nil
+}
+
+// Get returns the stored state of the key with this id.
+func (s *Store) Get(ctx context.Context, id string) (Key, error) {
+	k, _, err := s.get(ctx, id)
+	return k, err
+}
+
 // Delete revokes a key.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	err := s.Blobs.Delete(ctx, s.Container, keyBlob(id))
-	if errors.Is(err, azure.ErrNotFound) {
+	if errors.Is(err, blobs.ErrNotFound) {
 		return ErrUnknownKey
 	}
 	return err
@@ -225,7 +292,7 @@ func (s *Store) RecordJob(ctx context.Context, jobID string, job Job) error {
 
 func (s *Store) get(ctx context.Context, id string) (Key, string, error) {
 	data, etag, err := s.Blobs.Get(ctx, s.Container, keyBlob(id))
-	if errors.Is(err, azure.ErrNotFound) {
+	if errors.Is(err, blobs.ErrNotFound) {
 		return Key{}, "", ErrUnknownKey
 	}
 	if err != nil {
@@ -258,34 +325,25 @@ func (s *Store) update(ctx context.Context, id string, change func(*Key) error) 
 		if err == nil {
 			return k, nil
 		}
-		if !errors.Is(err, azure.ErrConditionNotMet) {
+		if !errors.Is(err, blobs.ErrConditionNotMet) {
 			return Key{}, err
 		}
 		if attempt == maxRetries {
 			return Key{}, ErrBusy
 		}
 		select {
-		case <-time.After(s.wait(attempt + 1)):
+		case <-time.After(wait(s.backoff, attempt+1)):
 		case <-ctx.Done():
 			return Key{}, ctx.Err()
 		}
 	}
 }
 
-// wait returns a random backoff of up to 25ms times n.
-func (s *Store) wait(n int) time.Duration {
-	if s.backoff != nil {
-		return s.backoff(n)
+// wait returns backoff(n), or a random backoff of up to 25ms times n if
+// backoff is nil.
+func wait(backoff func(int) time.Duration, n int) time.Duration {
+	if backoff != nil {
+		return backoff(n)
 	}
 	return mrand.N(time.Duration(n) * 25 * time.Millisecond)
-}
-
-// newKey returns prefix followed by keyBytes random bytes in base62.
-func newKey(prefix string) (string, error) {
-	b := make([]byte, keyBytes)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	s := new(big.Int).SetBytes(b).Text(62)
-	return prefix + strings.Repeat("0", keyChars-len(s)) + s, nil
 }

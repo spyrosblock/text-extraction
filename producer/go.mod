@@ -10,6 +10,7 @@ require (
 	github.com/azure/azure-functions-golang-worker v0.7.0-preview
 	github.com/google/uuid v1.6.0
 	github.com/klippa-app/go-pdfium v1.21.1
+	github.com/spyrosblock/text-extraction/billing v0.0.0
 )
 
 require (
@@ -39,3 +40,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/spyrosblock/text-extraction/billing => ../billing

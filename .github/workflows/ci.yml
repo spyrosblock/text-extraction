@@ -1,5 +1,6 @@
-# Pull request checks: Go vet/tests for the three components, Terraform
-# fmt/validate, and a terraform plan against staging posted to the PR.
+# Pull request checks: Go vet/tests for the components and the shared billing
+# module, Terraform fmt/validate, and a terraform plan against staging posted
+# to the PR.
 name: ci
 
 on:
@@ -22,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [producer, consumer, ocr_container]
+        component: [billing, producer, consumer, ocr_container]
     defaults:
       run:
         working-directory: ${{ matrix.component }}
@@ -31,7 +32,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.component }}/go.mod
-          cache-dependency-path: ${{ matrix.component }}/go.sum
+          cache-dependency-path: |
+            ${{ matrix.component }}/go.sum
+            billing/go.sum
       - name: Install tesseract
         if: matrix.component == 'ocr_container'
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ell

@@ -29,7 +29,7 @@ probed.
 
 The endpoint is anonymous at the host level (no function key) and checks `X-API-Key` itself. Only
 the key that submitted a PDF can read its text, for a day. The key id is the hex sha256 of the key,
-computed the same way as the producer's `credits.KeyID`; keep the two in sync.
+computed the same way as the producer's `billing.KeyID`; keep the two in sync.
 
 ## Retention
 

@@ -16,8 +16,9 @@ import (
 	"github.com/azure/azure-functions-golang-worker/sdk"
 	"github.com/azure/azure-functions-golang-worker/worker"
 
+	"github.com/spyrosblock/text-extraction/billing"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 	"github.com/spyrosblock/text-extraction/producer/internal/azure"
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 	"github.com/spyrosblock/text-extraction/producer/internal/extract"
 	"github.com/spyrosblock/text-extraction/producer/internal/handler"
 )
@@ -124,13 +125,13 @@ func run() error {
 		}
 	}
 
-	blobs, err := azure.NewBlobs(cfg.StorageAccountURL, cfg.StorageConnString, cred)
+	blobClient, err := blobs.NewBlobs(cfg.StorageAccountURL, cfg.StorageConnString, cred)
 	if err != nil {
 		return err
 	}
 	if cfg.CreateContainers {
 		for _, c := range []string{cfg.PDFContainer, cfg.TextContainer, cfg.BillingContainer} {
-			if err := blobs.EnsureContainer(context.Background(), c); err != nil {
+			if err := blobClient.EnsureContainer(context.Background(), c); err != nil {
 				return err
 			}
 		}
@@ -146,8 +147,8 @@ func run() error {
 		return err
 	}
 
-	store := &credits.Store{
-		Blobs:           blobs,
+	store := &billing.Store{
+		Blobs:           blobClient,
 		Container:       cfg.BillingContainer,
 		KeyPrefix:       cfg.KeyPrefix,
 		TextPageCredits: cfg.TextPageCredits,
@@ -155,7 +156,7 @@ func run() error {
 	}
 	h := &handler.Handler{
 		Extractor:     extractor,
-		Blobs:         blobs,
+		Blobs:         blobClient,
 		Queue:         queue,
 		Credits:       store,
 		PDFContainer:  cfg.PDFContainer,

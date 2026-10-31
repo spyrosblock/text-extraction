@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -18,9 +17,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 
+	"github.com/spyrosblock/text-extraction/billing"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 	"github.com/spyrosblock/text-extraction/producer/internal/azure"
 	"github.com/spyrosblock/text-extraction/producer/internal/contract"
-	"github.com/spyrosblock/text-extraction/producer/internal/credits"
 	"github.com/spyrosblock/text-extraction/producer/internal/extract"
 	"github.com/spyrosblock/text-extraction/producer/internal/handler"
 	"github.com/spyrosblock/text-extraction/producer/internal/pdftest"
@@ -37,12 +37,12 @@ func TestIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	blobs, err := azure.NewBlobs("", storageConn, nil)
+	blobStore, err := blobs.NewBlobs("", storageConn, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []string{"pdf-storage", "text-storage", "billing"} {
-		if err := blobs.EnsureContainer(ctx, c); err != nil {
+		if err := blobStore.EnsureContainer(ctx, c); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -57,14 +57,14 @@ func TestIntegration(t *testing.T) {
 	}
 	defer extractor.Close()
 
-	store := &credits.Store{Blobs: blobs, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5}
-	key, keyID, _, err := store.Create(ctx, "integration", 100)
+	store := &billing.Store{Blobs: blobStore, Container: "billing", KeyPrefix: "tx_test_", TextPageCredits: 1, OCRPageCredits: 5}
+	key, keyID, _, err := store.Create(ctx, "integration", 100, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Delete(context.WithoutCancel(ctx), keyID)
 
-	h := &handler.Handler{Extractor: extractor, Blobs: blobs, Queue: queue, Credits: store, PDFContainer: "pdf-storage", TextContainer: "text-storage"}
+	h := &handler.Handler{Extractor: extractor, Blobs: blobStore, Queue: queue, Credits: store, PDFContainer: "pdf-storage", TextContainer: "text-storage"}
 	blobClient, _ := azblob.NewClientFromConnectionString(storageConn, nil)
 
 	post := func(pdf []byte) handler.Response {
@@ -145,29 +145,8 @@ func TestIntegration(t *testing.T) {
 			}
 		}
 	})
-	t.Run("conditional upload", func(t *testing.T) {
-		name := "test/" + keyID + ".json"
-		defer blobs.Delete(context.WithoutCancel(ctx), "billing", name)
-		if err := blobs.UploadIf(ctx, "billing", name, []byte("1"), "application/json", ""); err != nil {
-			t.Fatal(err)
-		}
-		if err := blobs.UploadIf(ctx, "billing", name, []byte("2"), "application/json", ""); !errors.Is(err, azure.ErrConditionNotMet) {
-			t.Fatalf("create over existing blob: %v", err)
-		}
-		_, etag, err := blobs.Get(ctx, "billing", name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := blobs.UploadIf(ctx, "billing", name, []byte("3"), "application/json", etag); err != nil {
-			t.Fatal(err)
-		}
-		if err := blobs.UploadIf(ctx, "billing", name, []byte("4"), "application/json", etag); !errors.Is(err, azure.ErrConditionNotMet) {
-			t.Fatalf("stale etag: %v", err)
-		}
-		if data, _, _ := blobs.Get(ctx, "billing", name); string(data) != "3" {
-			t.Fatalf("data = %s", data)
-		}
-	})
+	// The blob client's own conditional uploads and deletes are tested in
+	// billing's integration test.
 
 	// Parallel charges conflict on the key blob's ETag and are retried, so
 	// none is lost. With 5 writers each needs at most 5 tries.

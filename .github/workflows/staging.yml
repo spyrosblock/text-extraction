@@ -39,7 +39,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.app }}/go.mod
-          cache-dependency-path: ${{ matrix.app }}/go.sum
+          cache-dependency-path: |
+            ${{ matrix.app }}/go.sum
+            billing/go.sum
       - run: npm install -g azure-functions-core-tools@4
       # Builds bin/app for linux/amd64 and zips it with host.json, the layout
       # the Flex Go runtime expects.

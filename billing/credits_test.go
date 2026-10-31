@@ -1,20 +1,22 @@
-package credits
+package billing
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/spyrosblock/text-extraction/producer/internal/blobtest"
+	"github.com/spyrosblock/text-extraction/billing/blobs"
 )
 
 var ctx = context.Background()
 
-func newStore() (*Store, *blobtest.Fake) {
-	b := &blobtest.Fake{}
+func newStore() (*Store, *blobs.Fake) {
+	b := &blobs.Fake{}
 	return &Store{
 		Blobs: b, Container: "billing", KeyPrefix: "tx_test_",
 		TextPageCredits: 1, OCRPageCredits: 5,
@@ -24,7 +26,7 @@ func newStore() (*Store, *blobtest.Fake) {
 
 func create(t *testing.T, s *Store, credits int64) (key, id string) {
 	t.Helper()
-	key, id, _, err := s.Create(ctx, "acme", credits)
+	key, id, _, err := s.Create(ctx, "acme", credits, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,7 @@ func balance(t *testing.T, s *Store, key string) int64 {
 
 func TestCreate(t *testing.T) {
 	s, blobs := newStore()
-	key, id, k, err := s.Create(ctx, "acme", 100)
+	key, id, k, err := s.Create(ctx, "acme", 100, "acct")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,11 +235,119 @@ func mustJSON(t *testing.T, v any) []byte {
 	return b
 }
 
-func blobBalance(t *testing.T, blobs *blobtest.Fake, id string) int64 {
+func blobBalance(t *testing.T, blobs *blobs.Fake, id string) int64 {
 	t.Helper()
 	var k Key
 	if err := json.Unmarshal(blobs.Data("billing", "keys/"+id+".json"), &k); err != nil {
 		t.Fatal(err)
 	}
 	return k.Credits
+}
+
+func TestCreateStoresAccountAndHint(t *testing.T) {
+	s, _ := newStore()
+	key, id, k, err := s.Create(ctx, "acme", 0, "acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k.AccountID != "acct" || k.Hint != key[len(key)-4:] {
+		t.Errorf("key = %+v, want account acct and hint %q", k, key[len(key)-4:])
+	}
+	if got, err := s.Get(ctx, id); err != nil || got.AccountID != "acct" || got.Hint != k.Hint {
+		t.Errorf("Get = %+v, %v", got, err)
+	}
+}
+
+// Charges rewrite the whole key blob; the account fields must survive.
+func TestChargeKeepsAccountFields(t *testing.T) {
+	s, _ := newStore()
+	_, id, k, err := s.Create(ctx, "acme", 0, "acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.CreditOrder(ctx, id, "order-1", "starter", 50); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Charge(ctx, id, 5); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Credits != 45 || got.AccountID != "acct" || got.Hint != k.Hint || got.Orders["order-1"].Credits != 50 {
+		t.Errorf("key after charge = %+v", got)
+	}
+}
+
+func TestCreditOrder(t *testing.T) {
+	s, _ := newStore()
+	key, id := create(t, s, 10)
+
+	bal, credited, err := s.CreditOrder(ctx, id, "order-1", "starter", 2000)
+	if err != nil || !credited || bal != 2010 {
+		t.Fatalf("CreditOrder = %d, %v, %v; want 2010, credited", bal, credited, err)
+	}
+	// A repeated order id adds nothing and returns the current balance.
+	if _, err := s.Charge(ctx, id, 10); err != nil {
+		t.Fatal(err)
+	}
+	bal, credited, err = s.CreditOrder(ctx, id, "order-1", "starter", 2000)
+	if err != nil || credited || bal != 2000 {
+		t.Fatalf("repeated CreditOrder = %d, %v, %v; want 2000, not credited", bal, credited, err)
+	}
+	// Different orders all add their credits.
+	for i := range 5 {
+		if _, credited, err := s.CreditOrder(ctx, id, fmt.Sprint("order-", i+2), "pro", 100); err != nil || !credited {
+			t.Fatalf("order %d: %v, %v", i+2, credited, err)
+		}
+	}
+	if got := balance(t, s, key); got != 2500 {
+		t.Errorf("balance = %d, want 2500", got)
+	}
+	k, _ := s.Get(ctx, id)
+	if len(k.Orders) != 6 || k.Orders["order-1"].Pack != "starter" || k.Orders["order-2"].Pack != "pro" || k.Orders["order-1"].CreatedAt.IsZero() {
+		t.Errorf("orders = %+v", k.Orders)
+	}
+	if _, _, err := s.CreditOrder(ctx, KeyID("other"), "order-9", "pro", 1); !errors.Is(err, ErrUnknownKey) {
+		t.Errorf("CreditOrder unknown key err = %v", err)
+	}
+}
+
+func TestCreditOrderRetriesOnConflict(t *testing.T) {
+	s, blobs := newStore()
+	key, id := create(t, s, 10)
+	conflicts := 2
+	blobs.BeforeUploadIf = func(container, name string) {
+		if conflicts > 0 {
+			conflicts--
+			// Someone else spends 3 credits.
+			blobs.Put(container, name, mustJSON(t, Key{Name: "acme", Credits: blobBalance(t, blobs, id) - 3}))
+		}
+	}
+	bal, credited, err := s.CreditOrder(ctx, id, "order-1", "starter", 100)
+	if err != nil || !credited || bal != 10-3-3+100 {
+		t.Fatalf("CreditOrder = %d, %v, %v", bal, credited, err)
+	}
+	if got := balance(t, s, key); got != bal {
+		t.Errorf("stored balance = %d", got)
+	}
+}
+
+// Parallel purchases of different orders all land.
+func TestCreditOrderParallel(t *testing.T) {
+	s, _ := newStore()
+	key, id := create(t, s, 0)
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Go(func() {
+			if _, _, err := s.CreditOrder(ctx, id, fmt.Sprint("order-", i), "starter", 10); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if got := balance(t, s, key); got != 40 {
+		t.Errorf("balance = %d, want 40", got)
+	}
 }

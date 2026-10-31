@@ -29,11 +29,12 @@ still charged.
 
 ## API keys and credits
 
-Keys are issued by hand. They are stored in the `billing` container of the data account:
+Keys are issued by hand. They are stored in the `billing` container of the data account, through the
+shared `billing` module (`../billing`, also used by the account app):
 
 | Blob | Content |
 | --- | --- |
-| `keys/<id>.json` | `{"name","credits","createdAt"}`; `id` is the hex sha256 of the key, which itself is never stored |
+| `keys/<id>.json` | `{"name","credits","createdAt","accountId","hint","orders"}`; `id` is the hex sha256 of the key, which itself is never stored. `accountId` (the owner; empty for keys issued here), `hint` (the key's last 4 characters) and `orders` (purchases credited to the key) are optional and kept by every charge. |
 | `jobs/<job id>.json` | `{"keyId","pages","ocrPages","credits","createdAt"}`, so the consumer only serves a job to its key; deleted after a day |
 
 Balance changes read the key blob and write it back with its ETag (`If-Match`), retrying up to 5
@@ -49,7 +50,7 @@ reserves routes starting with `admin`, hence `manage`:
 | Endpoint | Does |
 | --- | --- |
 | `POST /api/manage/keys {"name","credits"}` | Creates a key: `201 {"key","key_id","name","credits"}`. The key is only shown here. |
-| `GET /api/manage/keys` | Lists `[{"key_id","name","credits","createdAt"}]`. |
+| `GET /api/manage/keys` | Lists `[{"key_id","name","credits","createdAt","accountId","hint","orders"}]` (the last three when set). |
 | `PUT /api/manage/credits?key_id=<key_id> {"credits"}` | Sets the balance. |
 | `POST /api/manage/credits?key_id=<key_id> {"delta"}` | Adds to the balance (takes from it if negative). |
 | `DELETE /api/manage/keys?key_id=<key_id>` | Revokes the key (`204`). |
