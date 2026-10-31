@@ -136,7 +136,8 @@ func (b *Blobs) Delete(ctx context.Context, container, name string) error {
 }
 
 // DeleteIf deletes the blob only if its ETag is still ifMatch, so of two
-// callers holding the same ETag only one succeeds.
+// callers holding the same ETag only one succeeds. A blob that is gone
+// fails the condition too (ErrConditionNotMet, HTTP 412).
 func (b *Blobs) DeleteIf(ctx context.Context, container, name, ifMatch string) error {
 	_, err := b.client.DeleteBlob(ctx, container, name, &azblob.DeleteBlobOptions{
 		AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{

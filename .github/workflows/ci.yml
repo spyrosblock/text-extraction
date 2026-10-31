@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [billing, producer, consumer, ocr_container]
+        component: [billing, producer, consumer, account, ocr_container]
     defaults:
       run:
         working-directory: ${{ matrix.component }}

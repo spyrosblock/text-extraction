@@ -77,7 +77,7 @@ func TestIntegration(t *testing.T) {
 		if err := b.DeleteIf(ctx, "billing", name, etag); err != nil {
 			t.Fatal(err)
 		}
-		if err := b.DeleteIf(ctx, "billing", name, etag); !errors.Is(err, blobs.ErrNotFound) {
+		if err := b.DeleteIf(ctx, "billing", name, etag); !errors.Is(err, blobs.ErrConditionNotMet) {
 			t.Fatalf("deleted blob: %v", err)
 		}
 	})

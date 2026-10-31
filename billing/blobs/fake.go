@@ -133,11 +133,8 @@ func (f *Fake) Delete(_ context.Context, container, name string) error {
 func (f *Fake) DeleteIf(_ context.Context, container, name, ifMatch string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	b, ok := f.blobs[container+"/"+name]
-	if !ok {
-		return ErrNotFound
-	}
-	if b.etag != ifMatch {
+	// Like Blob Storage, a missing blob fails If-Match.
+	if b, ok := f.blobs[container+"/"+name]; !ok || b.etag != ifMatch {
 		return ErrConditionNotMet
 	}
 	f.Deleted = append(f.Deleted, container+"/"+name)
