@@ -80,7 +80,8 @@ ACS Email is called with a managed-identity token for `https://communication.azu
 ## Local development
 
 Requires Go 1.26+, Docker and Azure Functions Core Tools 4.12+. It listens on port 7073, next to
-the producer (7071) and the consumer (7072), and allows CORS from the local website on port 8000.
+the producer (7071) and the consumer (7072), and allows CORS from the local website on port 8000
+(`localhost` or `127.0.0.1`).
 
 ```sh
 docker compose up -d            # from the repo root

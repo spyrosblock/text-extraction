@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · text-extraction</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="dashboard">
+  <div class="banner">Test mode: payments are simulated and no money is taken.</div>
+  <header>
+    <a class="brand" href="index.html">text-extraction</a>
+    <nav>
+      <a href="index.html">API</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+  </header>
+  <main>
+    <div class="account-bar">
+      <p>Signed in as <strong id="me-email">…</strong></p>
+      <div>
+        <button id="logout" class="secondary small" type="button">Sign out</button>
+        <button id="delete-account" class="danger small" type="button">Delete account</button>
+      </div>
+    </div>
+    <p id="page-message" class="message error" hidden></p>
+
+    <h2>API keys</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Key</th><th class="num">Credits</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody id="keys"></tbody>
+      </table>
+    </div>
+    <p id="no-keys" class="muted" hidden>No keys yet.</p>
+
+    <div id="new-key" class="reveal" hidden>
+      <p><strong>Your new key.</strong> Copy it now: you won't see it again.</p>
+      <div class="row">
+        <code id="new-key-value"></code>
+        <button id="copy-key" class="secondary small" type="button">Copy</button>
+      </div>
+      <p class="small muted">Send it in the <code>X-API-Key</code> header. See the
+        <a href="index.html">quick start</a>.</p>
+      <button id="hide-key" class="secondary small" type="button">Done</button>
+    </div>
+
+    <h2>Create a key</h2>
+    <form id="create-form" class="inline">
+      <input id="key-name" type="text" maxlength="64" required placeholder="Key name, e.g. laptop"
+        aria-label="Key name">
+      <button type="submit">Create key</button>
+    </form>
+    <p id="free-credits" class="small ok message" hidden></p>
+    <p id="max-keys" class="small muted" hidden></p>
+    <p id="create-message" class="message error" hidden></p>
+
+    <p class="small muted">Prices: <span id="price-text">1</span> credit per page with a text layer,
+      <span id="price-ocr">5</span> per page that needs OCR.</p>
+  </main>
+  <footer>text-extraction · <a href="privacy.html">Privacy</a></footer>
+
+  <dialog id="checkout" aria-labelledby="checkout-title">
+    <form id="checkout-form" method="dialog">
+      <h2 id="checkout-title">Buy credits</h2>
+      <p class="small">For <strong id="checkout-key"></strong>. Test mode: no card is asked for and
+        no money is taken.</p>
+      <fieldset id="packs"></fieldset>
+      <label for="mock-password">Test-mode password</label>
+      <input id="mock-password" type="password" autocomplete="off" required>
+      <p id="checkout-message" class="message" hidden></p>
+      <div class="buttons">
+        <button id="checkout-close" class="secondary" type="button">Close</button>
+        <button id="checkout-pay" type="submit">Pay (test mode)</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,173 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1d2125;
+  --muted: #5d6670;
+  --line: #d9dde1;
+  --panel: #f5f6f7;
+  --accent: #1f5fbf;
+  --accent-fg: #ffffff;
+  --danger: #b3261e;
+  --ok: #1e7b34;
+  --banner-bg: #fff4c2;
+  --banner-fg: #4d3b00;
+  --radius: 6px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181b;
+    --fg: #e4e7ea;
+    --muted: #9aa3ad;
+    --line: #2e3439;
+    --panel: #1d2125;
+    --accent: #6ea2f0;
+    --accent-fg: #0d1117;
+    --danger: #f28b82;
+    --ok: #7bd389;
+    --banner-bg: #3d3200;
+    --banner-fg: #ffe8a3;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.banner {
+  background: var(--banner-bg);
+  color: var(--banner-fg);
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+header, main, footer {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+header .brand { font-weight: 700; color: var(--fg); text-decoration: none; }
+header nav { display: flex; gap: 16px; flex-wrap: wrap; }
+
+main { padding-top: 24px; padding-bottom: 48px; }
+
+footer {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  padding-bottom: 32px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+a { color: var(--accent); }
+
+h1 { font-size: 28px; line-height: 1.25; margin: 0 0 12px; }
+h2 { font-size: 20px; margin: 32px 0 12px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+
+code, pre { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 14px; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.actions { text-align: right; white-space: nowrap; }
+.table-wrap { overflow-x: auto; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--panel);
+}
+.card strong { display: block; font-size: 18px; }
+
+form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+label { display: block; font-weight: 600; margin-bottom: 4px; }
+
+input[type=email], input[type=text], input[type=password] {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  min-width: 0;
+  width: 100%;
+  max-width: 360px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+  padding: 8px 14px;
+  cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--accent); }
+button.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+button.small { padding: 4px 10px; font-size: 14px; }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.message { margin-top: 12px; }
+.message.error { color: var(--danger); }
+.message.ok { color: var(--ok); }
+
+.reveal {
+  border: 2px solid var(--ok);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 16px 0;
+}
+.reveal code { word-break: break-all; }
+.reveal .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 20px;
+  width: min(440px, calc(100vw - 32px));
+}
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+dialog h2 { margin-top: 0; }
+dialog fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+dialog .pack { display: flex; gap: 8px; align-items: baseline; padding: 6px 0; font-weight: 400; }
+dialog .buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+.account-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+[hidden] { display: none !important; }

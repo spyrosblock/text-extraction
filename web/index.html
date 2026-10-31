@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>text-extraction</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body data-page="index">
+  <div class="banner">Test mode: payments are simulated and no money is taken.</div>
+  <header>
+    <a class="brand" href="index.html">text-extraction</a>
+    <nav>
+      <a href="login.html" data-signed-out>Sign in</a>
+      <a href="dashboard.html" data-signed-in hidden>Dashboard</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Text out of your PDFs, over HTTP</h1>
+    <p>Send a PDF, get the text of every page back as JSON. Pages with a text layer are read
+      directly; scanned pages are OCRed (English and Greek). PDFs up to 90&nbsp;MB and 200 pages.</p>
+    <p><a href="login.html">Sign in with your email</a> to create an API key. Your first key comes
+      with <strong>100 free credits</strong>.</p>
+
+    <h2>Prices</h2>
+    <div class="cards">
+      <div class="card"><strong>1 credit</strong>per page with a text layer</div>
+      <div class="card"><strong>5 credits</strong>per page that needs OCR</div>
+    </div>
+    <p class="small muted">A PDF is charged when you submit it. Credits are not refunded if a page
+      can't be read.</p>
+
+    <h2>Credit packs</h2>
+    <div class="cards">
+      <div class="card"><strong>Starter</strong>2,000 credits · €10</div>
+      <div class="card"><strong>Pro</strong>12,000 credits · €50</div>
+    </div>
+    <p class="small muted">Test mode: purchases are simulated, no card is asked for and no money
+      moves.</p>
+
+    <h2>Quick start</h2>
+    <p>1. Submit a PDF with your key. The response has a <code>request_id</code>, the credits
+      charged and your balance.</p>
+    <pre id="curl-extract"></pre>
+    <p>2. Fetch the text with the same key. Pages that need OCR take a little while; until they're
+      done this answers <code>404</code>, so retry.</p>
+    <pre id="curl-text"></pre>
+    <p class="small muted">Each page comes back as <code>{"page", "text", "confidence"}</code>:
+      <code>"-"</code> for text from the text layer, Tesseract's confidence (0–100) for OCRed
+      pages. Text is kept for a day.</p>
+  </main>
+  <footer>text-extraction · <a href="privacy.html">Privacy</a></footer>
+</body>
+</html>

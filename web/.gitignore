@@ -1,0 +1,3 @@
+# Generated at deploy (staging.yml/prod.yml); locally, copy config.local.js.
+config.js
+staticwebapp.config.json
