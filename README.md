@@ -51,8 +51,9 @@ bootstrap after adding one, or a resource provider.
 Each environment has its own Stripe mode: staging test mode, prod live mode. Per mode, in the
 Stripe Dashboard:
 
-1. **Product and prices.** One product "OCR credits" with tax code AIaaS or SaaS, business use, and
-   one one-time EUR Price per pack. The Prices' `tax_behavior` (inclusive or exclusive) must match
+1. **Products and prices.** One product per pack ("Starter — 2,000 OCR credits", …; the name is
+   what Checkout and the receipt show) with tax code AIaaS or SaaS, business use, and one one-time
+   EUR Price. The Prices' `tax_behavior` (inclusive or exclusive) must match
    `prices_include_vat` in the tfvars, which only changes the site's "incl. VAT" / "VAT added at
    checkout" labels.
 2. **Packs.** Put each Price id in `credit_packs` in `infra/<env>.tfvars`, with `price_eur` equal to

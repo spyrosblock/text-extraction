@@ -16,8 +16,8 @@ ocr_max_executions     = 5
 # they're set, leave STRIPE_API_KEY unset in the staging environment
 # (checkout answers 503).
 credit_packs = {
-  starter = { credits = 2000, price_eur = 10, price_id = "" }
-  pro     = { credits = 12000, price_eur = 50, price_id = "" }
+  starter = { credits = 2000, price_eur = 10, price_id = "price_1UWcGuIxHzlgBz6SJWiNQQQE" }
+  pro     = { credits = 12000, price_eur = 50, price_id = "price_1UWcHeIxHzlgBz6S8vTVhMsh" }
 }
 prices_include_vat = true
 contact_email      = ""
