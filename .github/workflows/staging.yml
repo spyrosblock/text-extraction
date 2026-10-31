@@ -1,6 +1,6 @@
-# Deploys the infrastructure (Terraform, infra/), the Function apps
-# and/or the OCR image to staging (rg-textextract-staging), then smoke-tests
-# the environment. prod.yml promotes the same commit.
+# Deploys the infrastructure (Terraform, infra/), the Function apps, the OCR
+# image and/or the website (web/) to staging (rg-textextract-staging), then
+# smoke-tests the environment. prod.yml promotes the same commit.
 name: staging
 
 on:
@@ -9,7 +9,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, infra, functions, ocr, functions+ocr]
+        options: [all, infra, functions, ocr, functions+ocr, web]
         default: all
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [producer, consumer]
+        app: [producer, consumer, account]
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -98,6 +98,9 @@ jobs:
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
       FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr' }}
       OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr' }}
+      WEB: ${{ inputs.target == 'all' || inputs.target == 'web' }}
+      # Needed by every mock purchase (PLAN2_2); unset = purchases off.
+      TF_VAR_mock_tokens_password: ${{ secrets.MOCK_TOKENS_PASSWORD }}
       # Terraform signs in with the job's OIDC token, for the providers and
       # the state backend alike.
       ARM_USE_OIDC: true
@@ -177,6 +180,38 @@ jobs:
           app-name: ${{ fromJSON(steps.outputs.outputs.json).consumerName.value }}
           package: dist/consumer.zip
           sku: flexconsumption
+      - uses: Azure/functions-action@v1
+        if: env.FUNCTIONS == 'true'
+        with:
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).accountName.value }}
+          package: dist/account.zip
+          sku: flexconsumption
+
+      # --- web
+      # config.js and staticwebapp.config.json name the account app's host.
+      - name: Build website
+        if: env.WEB == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
+        run: .github/scripts/build-web.sh "$OUTPUTS" web-dist
+      - name: Website deployment token
+        id: web-token
+        if: env.WEB == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
+        run: |
+          token=$(az staticwebapp secrets list -g "$RG" -n "$(jq -r .webName.value <<<"$OUTPUTS")" \
+            --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          echo "token=$token" >>"$GITHUB_OUTPUT"
+      - uses: Azure/static-web-apps-deploy@v1
+        if: env.WEB == 'true'
+        with:
+          action: upload
+          azure_static_web_apps_api_token: ${{ steps.web-token.outputs.token }}
+          app_location: web-dist
+          skip_app_build: true
+          skip_api_build: true
 
   smoke:
     needs: deploy
@@ -196,13 +231,13 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      # Until both apps and the OCR image have been deployed once (e.g. an
-      # infra-only first run), there's nothing to test.
+      # Until the apps, the OCR image and the website have been deployed once
+      # (e.g. an infra-only first run), there's nothing to test.
       - name: Check deployed
         id: deployed
         run: |
           missing=()
-          for app in producer consumer; do
+          for app in producer consumer account; do
             name=$(jq -r ".${app}Name.value" <<<"$OUTPUTS")
             n=$(az functionapp function list -g "$RG" -n "$name" --query 'length(@)' -o tsv)
             ((n > 0)) || missing+=("$app")
@@ -210,6 +245,8 @@ jobs:
           job=$(jq -r .ocrJobName.value <<<"$OUTPUTS")
           image=$(az resource show -g "$RG" -n "$job" --resource-type Microsoft.App/jobs --query 'properties.template.containers[0].image' -o tsv)
           [[ "$image" == ghcr.io/* ]] || missing+=(ocr)
+          web=$(jq -r .webHostName.value <<<"$OUTPUTS")
+          curl -sSf -o /dev/null --max-time 60 "https://$web/config.js" || missing+=(web)
           if ((${#missing[@]})); then
             echo "::notice::Skipping the smoke test: not deployed yet: ${missing[*]}. Run with target all."
             echo "ready=false" >>"$GITHUB_OUTPUT"

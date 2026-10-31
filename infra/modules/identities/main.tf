@@ -9,6 +9,7 @@ variable "names" {
   type = object({
     producer = string
     consumer = string
+    account  = string
     ocr      = string
   })
 }
@@ -24,7 +25,7 @@ resource "azurerm_user_assigned_identity" "this" {
   tags                = var.tags
 }
 
-# producer, consumer, ocr => { id, principal_id, client_id }
+# producer, consumer, account, ocr => { id, principal_id, client_id }
 output "identities" {
   value = {
     for k, v in azurerm_user_assigned_identity.this : k => {

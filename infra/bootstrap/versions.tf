@@ -47,6 +47,7 @@ provider "azurerm" {
     "Microsoft.OperationalInsights",
     "Microsoft.Insights",
     "Microsoft.Network",
+    "Microsoft.Communication",
   ]
 }
 

@@ -14,6 +14,10 @@ terraform {
       source  = "Azure/azapi"
       version = "~> 2.13"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 
   backend "azurerm" {

@@ -26,3 +26,19 @@ output "dataStorageName" {
 output "serviceBusName" {
   value = module.service_bus.name
 }
+
+output "accountName" {
+  value = module.account.name
+}
+
+output "accountHostName" {
+  value = module.account.host_name
+}
+
+output "webName" {
+  value = module.web.name
+}
+
+output "webHostName" {
+  value = module.web.default_host_name
+}

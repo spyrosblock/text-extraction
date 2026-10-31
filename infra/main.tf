@@ -24,11 +24,16 @@ locals {
     vnet           = "vnet-textextract-${var.env}"
     producer       = "func-textextract-producer-${var.env}-${local.suffix}"
     consumer       = "func-textextract-consumer-${var.env}-${local.suffix}"
+    account        = "func-textextract-account-${var.env}-${local.suffix}"
+    web            = "stapp-textextract-${var.env}"
+    acs            = "acs-textextract-${var.env}-${local.suffix}"
+    email          = "ecs-textextract-${var.env}-${local.suffix}"
     ca_environment = "cae-textextract-${var.env}"
     ocr_job        = "caj-ocr-${var.env}"
     identities = {
       producer = "id-textextract-producer-${var.env}"
       consumer = "id-textextract-consumer-${var.env}"
+      account  = "id-textextract-account-${var.env}"
       ocr      = "id-textextract-ocr-${var.env}"
     }
   }
@@ -36,6 +41,7 @@ locals {
   deployment_containers = {
     producer = "app-package-producer"
     consumer = "app-package-consumer"
+    account  = "app-package-account"
   }
 }
 
@@ -99,15 +105,31 @@ module "network" {
   tags                    = local.tags
 }
 
+module "email" {
+  source                     = "./modules/email"
+  resource_group_name        = data.azurerm_resource_group.this.name
+  communication_service_name = local.names.acs
+  email_service_name         = local.names.email
+  tags                       = local.tags
+}
+
+module "web" {
+  source              = "./modules/web"
+  resource_group_name = data.azurerm_resource_group.this.name
+  name                = local.names.web
+  tags                = local.tags
+}
+
 module "roles" {
-  source               = "./modules/roles"
-  data_storage_id      = module.data_storage.id
-  text_container_id    = module.data_storage.container_ids[local.text_container]
-  billing_container_id = module.data_storage.container_ids[local.billing_container]
-  host_storage_id      = module.host_storage.id
-  queue_id             = module.service_bus.queue_id
-  app_insights_id      = module.monitoring.app_insights_id
-  principal_ids        = { for k, v in module.identities.identities : k => v.principal_id }
+  source                   = "./modules/roles"
+  data_storage_id          = module.data_storage.id
+  text_container_id        = module.data_storage.container_ids[local.text_container]
+  billing_container_id     = module.data_storage.container_ids[local.billing_container]
+  host_storage_id          = module.host_storage.id
+  queue_id                 = module.service_bus.queue_id
+  app_insights_id          = module.monitoring.app_insights_id
+  communication_service_id = module.email.communication_service_id
+  principal_ids            = { for k, v in module.identities.identities : k => v.principal_id }
 }
 
 locals {
@@ -166,6 +188,59 @@ module "consumer" {
     STORAGE_ACCOUNT_URL    = local.storage_account_url
     TEXT_STORAGE_CONTAINER = local.text_container
     BILLING_CONTAINER      = local.billing_container
+  }
+  tags       = local.tags
+  depends_on = [module.roles]
+}
+
+# Hashes the email addresses in the billing container's freecredits/ markers
+# (PLAN2_2). Kept in the state (Entra-only), so there's no secret to manage.
+# Never replace it: every existing marker would stop matching and every
+# address would get its free credits again. (No prevent_destroy: destroy.yml
+# deletes the billing data, markers included, with it.)
+resource "random_password" "free_credits" {
+  length  = 64
+  special = false
+}
+
+locals {
+  site_url = "https://${module.web.default_host_name}"
+}
+
+# The website's back end: magic-link sign-in, self-service keys and mock
+# purchases.
+module "account" {
+  source                         = "./modules/functionapp"
+  resource_group_id              = data.azurerm_resource_group.this.id
+  resource_group_name            = data.azurerm_resource_group.this.name
+  location                       = local.location
+  name                           = local.names.account
+  plan_name                      = "plan-${local.names.account}"
+  identity                       = module.identities.identities.account
+  host_storage_name              = module.host_storage.name
+  host_storage_blob_endpoint     = module.host_storage.blob_endpoint
+  deployment_container_name      = local.deployment_containers.account
+  instance_memory_mb             = 2048
+  maximum_instance_count         = var.function_max_instances
+  app_insights_connection_string = module.monitoring.app_insights_connection_string
+  subnet_id                      = try(local.subnet_ids.account, null)
+  cors_allowed_origins           = [local.site_url]
+  app_settings = {
+    STORAGE_ACCOUNT_URL   = local.storage_account_url
+    BILLING_CONTAINER     = local.billing_container
+    KEY_PREFIX            = var.key_prefix
+    CREDITS_PER_TEXT_PAGE = tostring(var.credits_per_text_page)
+    CREDITS_PER_OCR_PAGE  = tostring(var.credits_per_ocr_page)
+    SITE_URL              = local.site_url
+    EMAIL_MODE            = "acs"
+    ACS_ENDPOINT          = module.email.endpoint
+    EMAIL_SENDER          = module.email.sender
+    PAYMENTS_MODE         = "mock"
+    PACKS                 = jsonencode(var.credit_packs)
+    FREE_CREDITS          = tostring(var.free_credits_per_account)
+    MAX_KEYS              = tostring(var.max_keys_per_account)
+    FREE_CREDITS_SECRET   = random_password.free_credits.result
+    MOCK_TOKENS_PASSWORD  = var.mock_tokens_password
   }
   tags       = local.tags
   depends_on = [module.roles]

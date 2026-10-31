@@ -91,3 +91,45 @@ variable "credits_per_ocr_page" {
     error_message = "credits_per_ocr_page must be a non-negative integer."
   }
 }
+
+variable "credit_packs" {
+  description = "Credit packs the website sells. The price is only displayed; credits always come from here."
+  type = map(object({
+    credits   = number
+    price_eur = number
+  }))
+  default = {
+    starter = { credits = 2000, price_eur = 10 }
+    pro     = { credits = 12000, price_eur = 50 }
+  }
+  validation {
+    condition     = alltrue([for p in values(var.credit_packs) : p.credits > 0 && floor(p.credits) == p.credits && p.price_eur >= 0])
+    error_message = "Each pack needs a whole number of credits above 0 and a price_eur of at least 0."
+  }
+}
+
+variable "free_credits_per_account" {
+  description = "Free credits on the first key of each email address, once."
+  type        = number
+  default     = 100
+  validation {
+    condition     = var.free_credits_per_account >= 0 && floor(var.free_credits_per_account) == var.free_credits_per_account
+    error_message = "free_credits_per_account must be a non-negative integer."
+  }
+}
+
+variable "max_keys_per_account" {
+  type    = number
+  default = 2
+  validation {
+    condition     = var.max_keys_per_account >= 1 && floor(var.max_keys_per_account) == var.max_keys_per_account
+    error_message = "max_keys_per_account must be an integer of at least 1."
+  }
+}
+
+variable "mock_tokens_password" {
+  description = "Needed for every mock purchase; empty = purchases off. The deploys set TF_VAR_mock_tokens_password from the GitHub environment secret MOCK_TOKENS_PASSWORD."
+  type        = string
+  default     = ""
+  sensitive   = true
+}

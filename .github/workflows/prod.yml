@@ -1,8 +1,8 @@
-# Deploys the infrastructure (Terraform, infra/), the Function apps
-# and/or the OCR image to prod (rg-textextract-prod) after approval (the prod
-# environment's required reviewers). Run it on a commit staging.yml has
-# deployed: it reuses that run's OCR image tag. Every deploy step is in one
-# job, so a run needs one approval.
+# Deploys the infrastructure (Terraform, infra/), the Function apps, the OCR
+# image and/or the website (web/) to prod (rg-textextract-prod) after approval
+# (the prod environment's required reviewers). Run it on a commit staging.yml
+# has deployed: it reuses that run's OCR image tag. Every deploy step is in
+# one job, so a run needs one approval.
 name: prod
 
 on:
@@ -11,7 +11,7 @@ on:
       target:
         description: What to deploy
         type: choice
-        options: [all, infra, functions, ocr, functions+ocr]
+        options: [all, infra, functions, ocr, functions+ocr, web]
         default: all
 
 permissions:
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [producer, consumer]
+        app: [producer, consumer, account]
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -70,6 +70,9 @@ jobs:
       INFRA: ${{ inputs.target == 'all' || inputs.target == 'infra' }}
       FUNCTIONS: ${{ inputs.target == 'all' || inputs.target == 'functions' || inputs.target == 'functions+ocr' }}
       OCR: ${{ inputs.target == 'all' || inputs.target == 'ocr' || inputs.target == 'functions+ocr' }}
+      WEB: ${{ inputs.target == 'all' || inputs.target == 'web' }}
+      # Needed by every mock purchase (PLAN2_2); unset = purchases off.
+      TF_VAR_mock_tokens_password: ${{ secrets.MOCK_TOKENS_PASSWORD }}
       # Terraform signs in with the job's OIDC token, for the providers and
       # the state backend alike.
       ARM_USE_OIDC: true
@@ -159,3 +162,35 @@ jobs:
           app-name: ${{ fromJSON(steps.outputs.outputs.json).consumerName.value }}
           package: dist/consumer.zip
           sku: flexconsumption
+      - uses: Azure/functions-action@v1
+        if: env.FUNCTIONS == 'true'
+        with:
+          app-name: ${{ fromJSON(steps.outputs.outputs.json).accountName.value }}
+          package: dist/account.zip
+          sku: flexconsumption
+
+      # --- web
+      # config.js and staticwebapp.config.json name the account app's host.
+      - name: Build website
+        if: env.WEB == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
+        run: .github/scripts/build-web.sh "$OUTPUTS" web-dist
+      - name: Website deployment token
+        id: web-token
+        if: env.WEB == 'true'
+        env:
+          OUTPUTS: ${{ steps.outputs.outputs.json }}
+        run: |
+          token=$(az staticwebapp secrets list -g "$RG" -n "$(jq -r .webName.value <<<"$OUTPUTS")" \
+            --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          echo "token=$token" >>"$GITHUB_OUTPUT"
+      - uses: Azure/static-web-apps-deploy@v1
+        if: env.WEB == 'true'
+        with:
+          action: upload
+          azure_static_web_apps_api_token: ${{ steps.web-token.outputs.token }}
+          app_location: web-dist
+          skip_app_build: true
+          skip_api_build: true

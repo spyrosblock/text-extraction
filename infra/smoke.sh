@@ -15,6 +15,10 @@
 #    deployed (target ocr), not the quickstart one.
 # 3. Expects 401 from the producer without a key, 404 from the consumer for
 #    another key's job, and 402 from the producer for the key without credits.
+# 4. Account app and website (PLAN2_2): 401 from /api/me and /api/purchases
+#    without a session and from /api/auth/verify for a random token; the
+#    Static Web App serves index.html with the CSP header and a config.js that
+#    names the account app. No email is sent: sign-in is checked by hand.
 #
 # Reads the app names and host names from `terraform output -json` in
 # infra/ (or from OUTPUTS, as staging.yml passes them), and the
@@ -44,6 +48,9 @@ producer_name=$(output producerName)
 producer_url="https://$(output producerHostName)/api/extract"
 consumer_url="https://$(output consumerHostName)/api/text"
 manage_url="https://$(output producerHostName)/api/manage"
+account_host=$(output accountHostName)
+account_url="https://$account_host/api"
+web_url="https://$(output webHostName)"
 
 mask() {
   if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
@@ -126,6 +133,16 @@ http_code() { # curl args -> HTTP status
   curl -sS -o /dev/null -w '%{http_code}' --max-time 300 "$@" || true
 }
 
+warm_code() { # curl args -> HTTP status; retries while unreachable or 5xx (cold start, package swap)
+  local code
+  for _ in {1..12}; do
+    code=$(http_code "$@")
+    [[ "$code" != 000 && "$code" != 5* ]] && break
+    sleep 10
+  done
+  echo "$code"
+}
+
 log "Keys: $manage_url/keys"
 out=$(create_key smoke 2000)
 read -r key key_id <<<"$out"
@@ -158,6 +175,28 @@ code=$(http_code -X POST -H "X-API-Key: $empty_key" -H 'Content-Type: applicatio
 code=$(http_code -H "X-API-Key: $empty_key" -H 'Content-Type: application/pdf' --data-binary "@$TEXT_PDF" "$producer_url")
 [[ "$code" == 402 ]] || fail "producer, key without credits: HTTP $code, want 402"
 echo "401, 404 and 402 as expected"
+
+log "Account app: $account_url"
+code=$(warm_code "$account_url/me")
+[[ "$code" == 401 ]] || fail "GET /api/me without a session: HTTP $code, want 401"
+code=$(http_code -X POST -H 'Content-Type: application/json' \
+  -d "{\"pack\": \"starter\", \"key_id\": \"x\", \"order_id\": \"$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)\", \"password\": \"x\"}" \
+  "$account_url/purchases")
+[[ "$code" == 401 ]] || fail "POST /api/purchases without a session: HTTP $code, want 401"
+code=$(http_code -X POST -H 'Content-Type: application/json' \
+  -d "{\"token\": \"$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')\"}" "$account_url/auth/verify")
+[[ "$code" == 401 ]] || fail "POST /api/auth/verify with a random token: HTTP $code, want 401"
+echo "401s as expected"
+
+log "Website: $web_url"
+headers=$(curl -sS --fail -D - -o /dev/null --retry 6 --retry-delay 10 --retry-all-errors --max-time 60 \
+  "$web_url/index.html") || fail "GET $web_url/index.html failed"
+csp=$(tr -d '\r' <<<"$headers" | sed -n 's/^content-security-policy: *//Ip')
+[[ "$csp" == *"default-src 'self'"* && "$csp" == *"connect-src 'self' https://$account_host"* ]] ||
+  fail "index.html: CSP ${csp:-missing}, want default-src 'self' and connect-src to https://$account_host"
+config=$(curl -sS --fail --max-time 60 "$web_url/config.js") || fail "GET $web_url/config.js failed"
+grep -qF "https://$account_host" <<<"$config" || fail "config.js doesn't name https://$account_host: $config"
+echo "CSP and config.js as expected"
 
 log "OCR (up to $OCR_TIMEOUT s)"
 doc=$(wait_text "$ocr_id" "$OCR_TIMEOUT")

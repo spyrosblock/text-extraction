@@ -17,11 +17,15 @@ variable "queue_id" {
 variable "app_insights_id" {
   type = string
 }
+variable "communication_service_id" {
+  type = string
+}
 variable "principal_ids" {
-  description = "producer, consumer, ocr => principal id of the user-assigned identity."
+  description = "producer, consumer, account, ocr => principal id of the user-assigned identity."
   type = object({
     producer = string
     consumer = string
+    account  = string
     ocr      = string
   })
 }
@@ -45,6 +49,14 @@ locals {
     consumer-text    = { principal = "consumer", role = "blob_data_reader", scope = var.text_container_id }
     consumer-billing = { principal = "consumer", role = "blob_data_reader", scope = var.billing_container_id }
 
+    # account: accounts, sessions, sign-in state and the account's keys in
+    # billing; sends the magic-link emails. ACS has no data-plane role for
+    # emails:send and doesn't support custom roles, so this is the narrowest
+    # built-in role that allows it (Microsoft.Communication only, on this one
+    # communication service).
+    account-billing = { principal = "account", role = "blob_data_contributor", scope = var.billing_container_id }
+    account-email   = { principal = "account", role = "communication_and_email_service_owner", scope = var.communication_service_id }
+
     # ocr: reads and deletes PDFs, writes text, receives from the queue. The
     # KEDA scaler reads the queue's message count, which needs Data Owner.
     ocr-data           = { principal = "ocr", role = "blob_data_contributor", scope = var.data_storage_id }
@@ -54,10 +66,12 @@ locals {
     # Functions host storage and deployment packages.
     producer-host = { principal = "producer", role = "blob_data_owner", scope = var.host_storage_id }
     consumer-host = { principal = "consumer", role = "blob_data_owner", scope = var.host_storage_id }
+    account-host  = { principal = "account", role = "blob_data_owner", scope = var.host_storage_id }
 
     # Entra-authenticated telemetry.
     producer-telemetry = { principal = "producer", role = "monitoring_metrics_publisher", scope = var.app_insights_id }
     consumer-telemetry = { principal = "consumer", role = "monitoring_metrics_publisher", scope = var.app_insights_id }
+    account-telemetry  = { principal = "account", role = "monitoring_metrics_publisher", scope = var.app_insights_id }
     ocr-telemetry      = { principal = "ocr", role = "monitoring_metrics_publisher", scope = var.app_insights_id }
   }
 }

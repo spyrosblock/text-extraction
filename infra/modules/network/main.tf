@@ -26,6 +26,7 @@ locals {
   subnets = {
     producer = { name = "snet-func-producer", prefix = cidrsubnet(var.address_prefix, 4, 0), delegated = true }
     consumer = { name = "snet-func-consumer", prefix = cidrsubnet(var.address_prefix, 4, 1), delegated = true }
+    account  = { name = "snet-func-account", prefix = cidrsubnet(var.address_prefix, 4, 3), delegated = true }
     cae      = { name = "snet-cae", prefix = cidrsubnet(var.address_prefix, 5, 4), delegated = true }
     pe       = { name = "snet-pe", prefix = cidrsubnet(var.address_prefix, 6, 10), delegated = false }
   }
@@ -96,7 +97,7 @@ resource "azurerm_private_endpoint" "blob" {
   }
 }
 
-# producer, consumer, cae, pe => subnet id
+# producer, consumer, account, cae, pe => subnet id
 output "subnet_ids" {
   value = { for k, v in azurerm_subnet.this : k => v.id }
 }

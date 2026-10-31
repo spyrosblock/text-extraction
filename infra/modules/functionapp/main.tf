@@ -66,6 +66,11 @@ variable "subnet_id" {
   type        = string
   default     = null
 }
+variable "cors_allowed_origins" {
+  description = "Origins allowed to call the app from a browser; empty = no CORS."
+  type        = list(string)
+  default     = []
+}
 variable "app_settings" {
   description = "App-specific settings, merged over the common ones."
   type        = map(string)
@@ -140,11 +145,12 @@ resource "azapi_resource" "app" {
           version = "1.0"
         }
       }
-      siteConfig = {
+      # cors only when set, so apps without it see no change.
+      siteConfig = merge({
         minTlsVersion = "1.2"
         ftpsState     = "Disabled"
         appSettings   = [for k, v in merge(local.common_settings, var.app_settings) : { name = k, value = v }]
-      }
+      }, length(var.cors_allowed_origins) > 0 ? { cors = { allowedOrigins = var.cors_allowed_origins } } : {})
     }
   }
 

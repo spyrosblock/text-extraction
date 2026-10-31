@@ -20,7 +20,9 @@ Any `401` from the account app clears the session and goes to `login.html`.
 
 ## Generated at deploy
 
-Not committed (`.gitignore`); the `staging`/`prod` workflows write them:
+Not committed (`.gitignore`); the `staging`/`prod` workflows write them with
+[`.github/scripts/build-web.sh`](../.github/scripts/build-web.sh), which also leaves `README.md` and
+`config.local.js` out of the upload:
 
 - `config.js`: `window.ACCOUNT_API`, `window.PRODUCER_API` and `window.CONSUMER_API`, the apps'
   `https://` hosts.

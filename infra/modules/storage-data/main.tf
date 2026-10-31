@@ -1,7 +1,8 @@
 # Data account: pdf-storage (PDFs waiting for OCR), text-storage
 # (extracted text, deleted after a day) and billing (API keys and their
-# credits, plus a record per job deleted after a day). Identity-only; with private networking
-# on (prod), blob is reached through the private endpoint in the network module.
+# credits, a record per job deleted after a day, and the website's accounts,
+# sessions and sign-in state). Identity-only; with private networking on
+# (prod), blob is reached through the private endpoint in the network module.
 variable "resource_group_name" {
   type = string
 }
@@ -98,6 +99,52 @@ resource "azurerm_storage_management_policy" "this" {
     actions {
       base_blob {
         delete_after_days_since_modification_greater_than = 1
+      }
+    }
+  }
+
+  # Sign-in state from the account app. Login tokens live 15 minutes and
+  # rate-limit windows an hour at most; sessions 7 days. The app checks
+  # expiresAt itself, so these rules only clean up. Accounts, keys and the
+  # freecredits/ markers are kept.
+  rule {
+    name    = "expire-login-tokens"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${var.billing_container}/logintokens/"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 1
+      }
+    }
+  }
+
+  rule {
+    name    = "expire-rate-limits"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${var.billing_container}/ratelimits/"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 1
+      }
+    }
+  }
+
+  rule {
+    name    = "expire-sessions"
+    enabled = true
+    filters {
+      blob_types   = ["blockBlob"]
+      prefix_match = ["${var.billing_container}/sessions/"]
+    }
+    actions {
+      base_blob {
+        delete_after_days_since_modification_greater_than = 8
       }
     }
   }
