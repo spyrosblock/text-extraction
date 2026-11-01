@@ -93,17 +93,28 @@ become `pdf-storage`/`text-storage`.
 
 ## Local development
 
-Requires Go 1.26+, Docker and Azure Functions Core Tools 4.12+.
+`docker compose up -d --build` from the repo root starts the whole stack: the emulators, the
+ocr_container and the three Function apps (producer on 7071, consumer 7072, account 7073). The apps
+run in the image Flex Consumption runs them on in Azure
+(`mcr.microsoft.com/azure-functions/noble/flexconsumption`, see
+[`functions.Dockerfile`](../functions.Dockerfile)), so, as in Azure, the admin endpoints need the
+master key; locally it is `local-master-key`. After a code change,
+`docker compose up -d --build producer`.
 
 ```sh
-docker compose up -d            # from the repo root: Azurite + Service Bus emulator
-cp local.settings.example.json local.settings.json
-func start
-
-# Host keys aren't enforced locally, so the admin endpoints need none.
-curl -H 'Content-Type: application/json' -d '{"name": "me", "credits": 1000}' http://localhost:7071/api/manage/keys
+curl -H 'x-functions-key: local-master-key' -H 'Content-Type: application/json' \
+  -d '{"name": "me", "credits": 1000}' http://localhost:7071/api/manage/keys
 curl -H "X-API-Key: <key>" -H 'Content-Type: application/pdf' --data-binary @doc.pdf http://localhost:7071/api/extract
 curl -H "X-API-Key: <key>" -F file=@doc.pdf http://localhost:7071/api/extract
+```
+
+To run the app on the host instead (Go 1.26+, Azure Functions Core Tools 4.12+), stop its container
+so the port is free. `func start` doesn't enforce host keys, so the admin endpoints need none there.
+
+```sh
+docker compose stop producer
+cp local.settings.example.json local.settings.json
+func start
 ```
 
 ## Tests

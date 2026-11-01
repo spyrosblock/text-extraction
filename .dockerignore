@@ -1,0 +1,13 @@
+# Build context of functions.Dockerfile (the repo root).
+.git*
+**/bin/
+**/dist/
+**/local.settings.json
+**/*.zip
+**/*_test.go
+**/testdata/
+ignore/
+infra/
+web/
+samples/
+ocr_container/

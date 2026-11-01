@@ -109,32 +109,37 @@ ACS Email is called with a managed-identity token for `https://communication.azu
 
 ## Local development
 
-Requires Go 1.26+, Docker and Azure Functions Core Tools 4.12+. It listens on port 7073, next to
-the producer (7071) and the consumer (7072), and allows CORS from the local website on port 8000
-(`localhost` or `127.0.0.1`).
+It listens on port 7073, next to the producer (7071) and the consumer (7072), and allows CORS from
+the local website on port 8000 (`localhost` or `127.0.0.1`). `docker compose up -d --build` from
+the repo root starts it with the rest of the stack (see
+[producer](../producer/README.md#local-development)); its settings are in
+[`docker-compose.yml`](../docker-compose.yml). To run it on the host instead (Go 1.26+, Azure
+Functions Core Tools 4.12+):
 
 ```sh
-docker compose up -d            # from the repo root
+docker compose stop account
 cp local.settings.example.json local.settings.json
 func start
 ```
 
 To buy packs locally, set `STRIPE_API_KEY` to a test-mode restricted key and the packs' test-mode
-`price_id`s in `local.settings.json`, and forward Stripe's events with the
-[Stripe CLI](https://docs.stripe.com/stripe-cli):
+`price_id`s (in `local.settings.json`; for the container, as `STRIPE_API_KEY` and `PACKS` in a
+`.env` file at the repo root, then `docker compose up -d account`), and forward Stripe's events
+with the [Stripe CLI](https://docs.stripe.com/stripe-cli):
 
 ```sh
 stripe listen --forward-to localhost:7073/api/webhooks/stripe \
   --events checkout.session.completed,checkout.session.async_payment_succeeded,charge.refunded,charge.dispute.closed
 ```
 
-Put the `whsec_…` it prints in `STRIPE_WEBHOOK_SECRET` and restart `func start`. Buy a pack from the
+Put the `whsec_…` it prints in `STRIPE_WEBHOOK_SECRET` and restart `func start` (or the container). Buy a pack from the
 dashboard with the card `4242 4242 4242 4242` (Link passcode `000000` if asked); `stripe events
 resend <evt id>` must not change the balance, and refunds from the Dashboard take credits back. The
 CLI forwards events in the Stripe account's default API version; the app answers `400` to events
 outside the `endive` release train (the log says which version arrived).
 
-With `EMAIL_MODE=log` the sign-in link is in the log (`email (not sent, EMAIL_MODE=log)`).
+With `EMAIL_MODE=log` the sign-in link is in the log (`email (not sent, EMAIL_MODE=log)`;
+`docker compose logs -f account` for the container).
 
 ```sh
 curl -X POST http://localhost:7073/api/auth/start -H 'Content-Type: application/json' -d '{"email": "me@example.com"}'

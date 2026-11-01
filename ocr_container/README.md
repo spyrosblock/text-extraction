@@ -63,8 +63,8 @@ length, which needs Data Owner.
 
 ## Local development
 
-`docker compose up -d --build` from the repo root starts the emulators and this container, set to
-run continuously (`IDLE_TIMEOUT=0`). With the producer and consumer running (`func start`):
+`docker compose up -d --build` from the repo root starts the emulators, the Function apps and this
+container, set to run continuously (`IDLE_TIMEOUT=0`):
 
 ```sh
 curl -H 'Content-Type: application/pdf' --data-binary @scanned.pdf http://localhost:7071/api/extract

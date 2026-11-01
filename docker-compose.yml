@@ -1,6 +1,31 @@
-# Local dev: Azurite (Blob), the Service Bus emulator and the ocr_container.
+# Local dev: Azurite (Blob), the Service Bus emulator, the ocr_container and the
+# three Function apps (producer :7071, consumer :7072, account :7073).
 # docker compose up -d --build
 name: text-extraction
+
+x-storage: &storage "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
+x-servicebus: &servicebus "Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+
+# The Function apps run in the Flex Consumption host image (functions.Dockerfile)
+# with the settings of their local.settings.example.json, pointed at the
+# emulators' service names. Unlike `func start`, the host enforces function
+# keys: the producer's admin endpoints need the master key, local-master-key
+# (x-functions-key header), from the function-secrets config below.
+x-function-configs: &function-configs
+  - source: function-secrets
+    target: /etc/function-secrets/host.json
+
+x-function-env: &function-env
+  AzureWebJobsStorage: *storage
+  AzureWebJobsSecretStorageType: files
+  FUNCTIONS_SECRETS_PATH: /etc/function-secrets
+  AzureFunctionsJobHost__Logging__Console__IsEnabled: "true"
+  STORAGE_CONNECTION_STRING: *storage
+  CREATE_CONTAINERS: "true"
+  BILLING_CONTAINER: billing
+  KEY_PREFIX: tx_dev_
+  CREDITS_PER_TEXT_PAGE: "1"
+  CREDITS_PER_OCR_PAGE: "5"
 
 services:
   azurite:
@@ -37,8 +62,8 @@ services:
     build: ./ocr_container
     restart: on-failure
     environment:
-      STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
-      SERVICEBUS_CONNECTION_STRING: "Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+      STORAGE_CONNECTION_STRING: *storage
+      SERVICEBUS_CONNECTION_STRING: *servicebus
       CREATE_CONTAINERS: "true"
       IDLE_TIMEOUT: "0"
       OCR_WORKERS: "4"
@@ -46,7 +71,75 @@ services:
       - azurite
       - servicebus
 
+  producer:
+    build:
+      context: .
+      dockerfile: functions.Dockerfile
+      args: { APP: producer }
+    configs: *function-configs
+    restart: on-failure
+    ports:
+      - "7071:8080"
+    environment:
+      <<: *function-env
+      SERVICEBUS_CONNECTION_STRING: *servicebus
+      PDF_STORAGE_CONTAINER: pdf-storage
+      TEXT_STORAGE_CONTAINER: text-storage
+      PDF_QUEUE_NAME: pdf_queue
+    depends_on:
+      - azurite
+      - servicebus
+
+  consumer:
+    build:
+      context: .
+      dockerfile: functions.Dockerfile
+      args: { APP: consumer }
+    configs: *function-configs
+    restart: on-failure
+    ports:
+      - "7072:8080"
+    environment:
+      <<: *function-env
+      TEXT_STORAGE_CONTAINER: text-storage
+    depends_on:
+      - azurite
+
+  # Payments: put STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET and PACKS (with the
+  # test-mode price ids) in a .env file next to this one, then
+  # docker compose up -d account. See account/README.md.
+  account:
+    build:
+      context: .
+      dockerfile: functions.Dockerfile
+      args: { APP: account }
+    configs: *function-configs
+    restart: on-failure
+    ports:
+      - "7073:8080"
+    environment:
+      <<: *function-env
+      FUNCTIONS_ENABLE_CORS_CONFIGURATION: "1"
+      CORS_ALLOWED_ORIGINS: '["http://localhost:8000","http://127.0.0.1:8000"]'
+      SITE_URL: http://localhost:8000
+      EMAIL_MODE: log
+      PACKS: '${PACKS:-{"starter":{"credits":2000,"price_eur":10,"price_id":"price_REPLACE_test_starter"},"pro":{"credits":12000,"price_eur":50,"price_id":"price_REPLACE_test_pro"}}}'
+      FREE_CREDITS: "100"
+      MAX_KEYS: "2"
+      MAX_ACCOUNT_CREDITS: "20000"
+      FREE_CREDITS_SECRET: local-only-free-credits-secret-not-for-azure
+      PAYMENTS_TEST_MODE: "true"
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_REPLACE_with_the_one_stripe_listen_prints}
+    depends_on:
+      - azurite
+
 configs:
+  # The Function hosts' master key, for local use only.
+  function-secrets:
+    content: |
+      {"masterKey": {"name": "master", "value": "local-master-key", "encrypted": false}, "functionKeys": []}
+
   # Entities the Service Bus emulator creates on startup. pdf_queue matches the
   # Terraform queue settings (lock PT5M, maxDeliveryCount 5).
   servicebus-config:

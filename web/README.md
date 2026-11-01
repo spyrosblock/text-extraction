@@ -57,4 +57,4 @@ python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
 Open <http://localhost:8000> (or `127.0.0.1`); the account app's local CORS setting allows only
-those two origins, so `http://0.0.0.0:8000` won't work. With `EMAIL_MODE=log` the sign-in link is in the account app's log.
+those two origins, so `http://0.0.0.0:8000` won't work. With `EMAIL_MODE=log` the sign-in link is in the account app's log (`docker compose logs -f account`).

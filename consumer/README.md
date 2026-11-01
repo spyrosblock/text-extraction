@@ -57,11 +57,13 @@ and `billing` containers ([`infra/modules/roles`](../infra/modules/roles/main.tf
 
 ## Local development
 
-Requires Go 1.26+, Docker and Azure Functions Core Tools 4.12+. It listens on port 7072 so it
-can run next to the producer (7071).
+It listens on port 7072 so it can run next to the producer (7071). `docker compose up -d --build`
+from the repo root starts it with the rest of the stack (see
+[producer](../producer/README.md#local-development)). To run it on the host instead (Go 1.26+, Azure
+Functions Core Tools 4.12+):
 
 ```sh
-docker compose up -d            # from the repo root
+docker compose stop consumer
 cp local.settings.example.json local.settings.json
 func start
 
