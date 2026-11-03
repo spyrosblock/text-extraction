@@ -60,6 +60,10 @@ type config struct {
 	MaxKeys           int64
 	MaxCredits        int64 // per account; 0: no cap
 
+	// DailyRequestLimit caps calls to all functions but the Stripe webhook
+	// per UTC day, all callers together; 0: no cap.
+	DailyRequestLimit int64
+
 	StripeAPIKey        string // empty: checkout answers 503
 	StripeWebhookSecret string
 	PaymentsTestMode    bool
@@ -92,6 +96,7 @@ func loadConfig() (config, error) {
 		{"FREE_CREDITS", 100, 0, &c.FreeCredits},
 		{"MAX_KEYS", 2, 1, &c.MaxKeys},
 		{"MAX_ACCOUNT_CREDITS", 20000, 0, &c.MaxCredits},
+		{"DAILY_REQUEST_LIMIT", 0, 0, &c.DailyRequestLimit},
 	} {
 		*p.dst = p.def
 		if v := os.Getenv(p.key); v != "" {
@@ -241,6 +246,7 @@ func run() error {
 		stripeClient = stripe.NewClient(cfg.StripeAPIKey, stripe.WithBackends(backends))
 	}
 
+	limits := &billing.RateLimiter{Blobs: blobClient, Container: cfg.BillingContainer}
 	accounts := &billing.Accounts{Blobs: blobClient, Container: cfg.BillingContainer, FreeCreditsSecret: []byte(cfg.FreeCreditsSecret)}
 	h := &handler.Handler{
 		Store: &billing.Store{
@@ -253,7 +259,7 @@ func run() error {
 		Accounts:      accounts,
 		Sessions:      &billing.Sessions{Blobs: blobClient, Container: cfg.BillingContainer, Accounts: accounts, TTL: sessionTTL},
 		LoginTokens:   &billing.LoginTokens{Blobs: blobClient, Container: cfg.BillingContainer, TTL: loginTokenTTL},
-		Limits:        &billing.RateLimiter{Blobs: blobClient, Container: cfg.BillingContainer},
+		Limits:        limits,
 		Locks:         &billing.Locks{Blobs: blobClient, Container: cfg.BillingContainer},
 		Email:         sender,
 		SiteURL:       cfg.SiteURL,
@@ -269,21 +275,29 @@ func run() error {
 	app := sdk.FunctionApp()
 	// Anonymous at the host level: the website's callers sign in with a
 	// session (Authorization: Bearer), and Stripe signs its webhook events;
-	// the handlers check both.
+	// the handlers check both. DAILY_REQUEST_LIMIT caps all of them
+	// together per UTC day, except the webhook: a missed payment event
+	// would cost a customer their credits. CORS preflights are answered by
+	// the platform, so they aren't counted.
 	for _, f := range []struct {
 		name, route string
 		handler     sdk.HTTPHandler
 		methods     []string
+		uncapped    bool
 	}{
-		{"auth-start", "auth/start", h.Start, []string{"POST"}},
-		{"auth-verify", "auth/verify", h.Verify, []string{"POST"}},
-		{"auth-logout", "auth/logout", h.Logout, []string{"POST"}},
-		{"me", "me", h.Me, []string{"GET", "DELETE"}},
-		{"keys", "keys", h.Keys, []string{"GET", "POST", "DELETE"}},
-		{"checkout", "checkout", h.Checkout, []string{"POST"}},
-		{"stripe-webhook", "webhooks/stripe", h.StripeWebhook, []string{"POST"}},
+		{"auth-start", "auth/start", h.Start, []string{"POST"}, false},
+		{"auth-verify", "auth/verify", h.Verify, []string{"POST"}, false},
+		{"auth-logout", "auth/logout", h.Logout, []string{"POST"}, false},
+		{"me", "me", h.Me, []string{"GET", "DELETE"}, false},
+		{"keys", "keys", h.Keys, []string{"GET", "POST", "DELETE"}, false},
+		{"checkout", "checkout", h.Checkout, []string{"POST"}, false},
+		{"stripe-webhook", "webhooks/stripe", h.StripeWebhook, []string{"POST"}, true},
 	} {
-		app.HTTP(f.name, f.handler,
+		fn := f.handler
+		if !f.uncapped {
+			fn = limits.Daily("account", cfg.DailyRequestLimit, fn)
+		}
+		app.HTTP(f.name, fn,
 			sdk.WithMethods(f.methods...),
 			sdk.WithAuth("anonymous"),
 			sdk.WithRoute(f.route),

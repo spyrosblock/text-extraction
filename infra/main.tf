@@ -167,6 +167,7 @@ module "producer" {
     KEY_PREFIX             = var.key_prefix
     CREDITS_PER_TEXT_PAGE  = tostring(var.credits_per_text_page)
     CREDITS_PER_OCR_PAGE   = tostring(var.credits_per_ocr_page)
+    DAILY_REQUEST_LIMIT    = tostring(var.daily_request_limit)
   }
   tags       = local.tags
   depends_on = [module.roles]
@@ -249,6 +250,7 @@ module "account" {
     STRIPE_API_KEY        = var.stripe_api_key
     STRIPE_WEBHOOK_SECRET = var.stripe_webhook_secret
     PAYMENTS_TEST_MODE    = tostring(var.env != "prod")
+    DAILY_REQUEST_LIMIT   = tostring(var.daily_request_limit)
   }
   tags       = local.tags
   depends_on = [module.roles]

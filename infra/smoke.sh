@@ -24,6 +24,10 @@
 #    domain when siteUrl is one. No email is sent and no checkout is created:
 #    sign-in and payments are checked by hand.
 #
+# Each run makes about 4 calls to the producer's extract and 3 to the account
+# app that count towards DAILY_REQUEST_LIMIT (100 a day in staging); once the
+# cap is used up the smoke test fails with 429 until UTC midnight.
+#
 # Reads the app names and host names from `terraform output -json` in
 # infra/ (or from OUTPUTS, as staging.yml passes them), and the
 # producer's master key from ARM, so az needs Contributor on the RG.

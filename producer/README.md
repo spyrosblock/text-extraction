@@ -81,6 +81,7 @@ infra/keys.sh rg-textextract-prod revoke <id>
 | `KEY_PREFIX` | `tx_dev_` | start of new keys (`tx_stag_`, `tx_prod_` in Azure) |
 | `CREDITS_PER_TEXT_PAGE` | `1` | |
 | `CREDITS_PER_OCR_PAGE` | `5` | |
+| `DAILY_REQUEST_LIMIT` | `0` | most calls to `POST /api/extract` per UTC day, all callers together; over it `429` with `Retry-After` (seconds to UTC midnight), and `503` if the counter (`ratelimits/app/producer/<day>.json` in `BILLING_CONTAINER`) can't be updated. The admin endpoints aren't counted. `0`: no cap (prod, local); `100` in staging |
 | `PDFIUM_WORKERS` | CPU count | concurrent PDFium instances |
 | `CREATE_CONTAINERS` | `false` | create blob containers on startup (local dev) |
 

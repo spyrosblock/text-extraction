@@ -213,3 +213,13 @@ variable "contact_email" {
   type        = string
   default     = ""
 }
+
+variable "daily_request_limit" {
+  description = "Most calls per UTC day to each of the producer's and the account app's public endpoints, all callers together (not the Stripe webhook or admin endpoints). 0: no cap."
+  type        = number
+  default     = 0
+  validation {
+    condition     = var.daily_request_limit >= 0 && floor(var.daily_request_limit) == var.daily_request_limit
+    error_message = "daily_request_limit must be a non-negative integer."
+  }
+}

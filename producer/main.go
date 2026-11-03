@@ -41,6 +41,10 @@ type config struct {
 	KeyPrefix       string
 	TextPageCredits int64
 	OCRPageCredits  int64
+
+	// DailyRequestLimit caps calls to extract per UTC day, all callers
+	// together; 0: no cap.
+	DailyRequestLimit int64
 }
 
 func loadConfig() (config, error) {
@@ -72,6 +76,7 @@ func loadConfig() (config, error) {
 	}{
 		{"CREDITS_PER_TEXT_PAGE", 1, &c.TextPageCredits},
 		{"CREDITS_PER_OCR_PAGE", 5, &c.OCRPageCredits},
+		{"DAILY_REQUEST_LIMIT", 0, &c.DailyRequestLimit},
 	} {
 		*p.dst = p.def
 		if v := os.Getenv(p.key); v != "" {
@@ -163,15 +168,16 @@ func run() error {
 		TextContainer: cfg.TextContainer,
 	}
 	admin := &handler.Admin{Credits: store}
+	limits := &billing.RateLimiter{Blobs: blobClient, Container: cfg.BillingContainer}
 
 	app := sdk.FunctionApp()
 	// Callers authenticate with their own API key (X-API-Key), checked by
-	// the handler.
-	app.HTTP("extract", h.ServeHTTP,
+	// the handler. DAILY_REQUEST_LIMIT caps it per UTC day.
+	app.HTTP("extract", limits.Daily("producer", cfg.DailyRequestLimit, h.ServeHTTP),
 		sdk.WithMethods("POST"),
 		sdk.WithAuth("anonymous"),
 	)
-	// Master key only.
+	// Master key only; not capped.
 	app.HTTP("manage-keys", admin.Keys,
 		sdk.WithMethods("GET", "POST", "DELETE"),
 		sdk.WithAuth("admin"),

@@ -101,6 +101,7 @@ with `infra/keys.sh add`, or refund), and a refund for an order the key doesn't 
 | `FREE_CREDITS_SECRET` | | required, at least 32 bytes; never change it (every address would get free credits again) |
 | `MAX_KEYS` | `2` | per account |
 | `MAX_ACCOUNT_CREDITS` | `20000` | most credits an account can hold, summed over its keys: checkout refuses a pack over it, the webhook refunds a paid one; `0`: no cap. Every pack must fit in it |
+| `DAILY_REQUEST_LIMIT` | `0` | most calls per UTC day to all endpoints but `/api/webhooks/stripe`, all callers together; over it `429` with `Retry-After` (seconds to UTC midnight), and `503` if the counter (`ratelimits/app/account/<day>.json`) can't be updated. CORS preflights aren't counted. `0`: no cap (prod, local); `100` in staging |
 | `PAYMENTS_TEST_MODE` | | required, `true` or `false`: Stripe test or live mode |
 | `STRIPE_API_KEY` | | restricted key, Checkout Sessions write and read, Refunds write; must match the mode (`rk_test_…`/`rk_live_…`). Empty: checkout answers `503` |
 | `STRIPE_WEBHOOK_SECRET` | | required, `whsec_…` of the webhook endpoint |

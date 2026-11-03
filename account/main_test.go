@@ -27,7 +27,7 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.PaymentsTestMode || c.Packs["pro"].PriceID != "price_b" || c.StripeWebhookSecret != "whsec_abc" || c.MaxCredits != 20000 {
+	if !c.PaymentsTestMode || c.Packs["pro"].PriceID != "price_b" || c.StripeWebhookSecret != "whsec_abc" || c.MaxCredits != 20000 || c.DailyRequestLimit != 0 {
 		t.Errorf("config = %+v", c)
 	}
 }
@@ -54,6 +54,9 @@ func TestLoadConfigChecks(t *testing.T) {
 		"pack at the cap":     {map[string]string{"MAX_ACCOUNT_CREDITS": "12000"}, ""},
 		"no cap":              {map[string]string{"MAX_ACCOUNT_CREDITS": "0"}, ""},
 		"negative cap":        {map[string]string{"MAX_ACCOUNT_CREDITS": "-1"}, "MAX_ACCOUNT_CREDITS must be an integer ≥ 0"},
+		"daily limit":         {map[string]string{"DAILY_REQUEST_LIMIT": "100"}, ""},
+		"negative daily":      {map[string]string{"DAILY_REQUEST_LIMIT": "-1"}, "DAILY_REQUEST_LIMIT must be an integer ≥ 0"},
+		"bad daily":           {map[string]string{"DAILY_REQUEST_LIMIT": "x"}, "DAILY_REQUEST_LIMIT must be an integer ≥ 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			setValidEnv(t)

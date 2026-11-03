@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"net/url"
 	"strconv"
 	"time"
@@ -14,8 +16,8 @@ import (
 
 // RateLimiter counts events in fixed windows, one blob per kind, value and
 // window: ratelimits/<kind>/<value>/<window start>.json. Counters are
-// incremented with If-Match. A lifecycle rule deletes them after a day, so
-// windows must be shorter than that.
+// incremented with If-Match. A lifecycle rule deletes them a day after their
+// last write, so windows must be at most a day.
 type RateLimiter struct {
 	Blobs     BlobStore
 	Container string
@@ -89,4 +91,39 @@ func (r *RateLimiter) Add(ctx context.Context, kind, value string, window time.D
 			return 0, ctx.Err()
 		}
 	}
+}
+
+// Daily caps all calls to next at limit per UTC day, counted in one counter
+// per app: ratelimits/app/<app>/<day start>.json. limit 0: no cap. Calls over
+// the cap get 429 with Retry-After set to the next UTC midnight; if the
+// counter can't be updated, calls get 503 (fail closed).
+func (r *RateLimiter) Daily(app string, limit int64, next http.HandlerFunc) http.HandlerFunc {
+	if limit == 0 {
+		return next
+	}
+	const day = 24 * time.Hour
+	return func(w http.ResponseWriter, req *http.Request) {
+		ok, err := r.Allow(req.Context(), "app", app, limit, day)
+		switch {
+		case err != nil:
+			slog.Error("daily request limit: counter update failed", "app", app, "error", err)
+			writeLimitError(w, http.StatusServiceUnavailable, "service busy, try again")
+		case !ok:
+			// Truncate works from the zero time, which is UTC midnight.
+			t := now(r.Now)
+			retry := t.Truncate(day).Add(day).Sub(t)
+			slog.Warn("daily request limit reached", "app", app, "limit", limit)
+			w.Header().Set("Retry-After", strconv.FormatInt(int64((retry+time.Second-1)/time.Second), 10))
+			writeLimitError(w, http.StatusTooManyRequests, "daily request limit reached, try again tomorrow")
+		default:
+			next(w, req)
+		}
+	}
+}
+
+func writeLimitError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

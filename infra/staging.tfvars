@@ -11,6 +11,10 @@ log_daily_quota_gb     = 1
 function_max_instances = 10
 ocr_max_executions     = 5
 
+# Public calls per UTC day to each of the producer and account apps
+# (PLAN_3_DAILY_RATE_LIMIT); prod leaves it at 0 (no cap).
+daily_request_limit = 100
+
 # Stripe test mode (PLAN2_3). Fill in the test-mode Price ids of the
 # "OCR credits" product; price_eur must equal each Price's amount. Until
 # they're set, leave STRIPE_API_KEY unset in the staging environment
