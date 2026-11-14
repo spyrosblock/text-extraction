@@ -6,7 +6,7 @@ The website, served by an Azure Static Web App (Free tier): plain HTML, one `sty
 
 | Page | Does |
 | --- | --- |
-| `index.html` | What the API does, prices, packs (from `config.js`) and a `curl` quick start |
+| `index.html` | What the API does, prices, packs (from `config.js`), a `curl` quick start, and the prompt that hands an AI agent the skill (with the page's own origin) |
 | `login.html` | Email form; always answers "Check your inbox" for a well-formed address |
 | `auth.html` | Reads `#token` from the magic link, drops it from the address, posts it to `/api/auth/verify` and keeps the session in `localStorage` |
 | `dashboard.html` | The account's keys: create (the key is shown once), revoke, buy credits; sign out, delete the account |
@@ -46,6 +46,11 @@ Not committed (`.gitignore`); the `staging`/`prod` workflows write them with
 - `staticwebapp.config.json`: the CSP (`default-src 'self'`, `connect-src` limited to the account
   app, `frame-ancestors 'none'`), `Referrer-Policy: no-referrer` and `X-Content-Type-Options:
   nosniff`. The CSP allows no inline scripts or styles, so keep both in `app.js` and `style.css`.
+  It also serves `.md` files as `text/markdown`.
+- `skill/text-extraction/SKILL.md` and `skill/text-extraction.zip`: the agent skill from
+  [`skill/`](../skill/text-extraction/SKILL.md), with `{{SITE_URL}}` (`siteUrl`),
+  `{{PRODUCER_API}}` and `{{CONSUMER_API}}` filled in. The home page's quick start links both. The
+  build fails if a `{{` placeholder is left.
 
 ## Local development
 

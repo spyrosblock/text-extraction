@@ -14,6 +14,20 @@ a refund or a lost dispute. Staging runs in Stripe test mode. Each email address
 refunded automatically. Keys, balances, accounts and sessions are JSON blobs in the `billing`
 container, through the shared Go module [`billing`](libs/billing).
 
+## Agent skill
+
+AI agents (Claude, Codex, Cursor, …) can use the API through the skill in
+[`skill/`](skill/text-extraction/SKILL.md). The website serves it with each environment's hosts
+filled in (see [web](web/README.md#generated-at-deploy)). Customers start by giving their agent
+this prompt:
+
+```text
+Download <site>/skill/text-extraction/SKILL.md with curl and follow it to extract the text of report.pdf.
+```
+
+`<site>` is the website's address (the `siteUrl` output: `https://www.<domain>` in prod). Without
+a key, the agent walks the user through signing in, creating a key and pasting it into the chat.
+
 ## Repository layout
 
 ```
@@ -27,6 +41,7 @@ libs/                Go modules shared by the services (imported through replace
   contract/          payloads exchanged between producer, ocr and consumer
   pdftest/           builds minimal PDFs for tests
 web/                 the website (Static Web App)
+skill/               agent skill template, rendered and served by the website at deploy
 infra/               Terraform (and bootstrap/ for the one-time setup)
 scripts/             ops scripts: keys.sh (admin API keys), smoke.sh (end-to-end test)
 docker/              local-dev image of the Function apps

@@ -87,7 +87,8 @@ jobs:
   # Infra first, so the OCR and function deploys find the resources.
   deploy:
     needs: [build-functions, build-ocr]
-    # Run when the builds this target doesn't need were skipped.
+    # needs: implies success(), which is false when a build was skipped for
+    # this target. Run as long as nothing upstream failed or was cancelled.
     if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     environment: staging

@@ -174,6 +174,10 @@ const pages = {
       "curl -X POST " + CONSUMER + "/api/text \\\n" +
       '  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \\\n' +
       "  -d '{\"request_id\": \"<request_id>\"}'";
+    // The site serves the skill rendered for this environment (build-web.sh).
+    $("agent-prompt").textContent =
+      "Download " + location.origin + "/skill/text-extraction/SKILL.md with curl\n" +
+      "and follow it to extract the text of report.pdf.";
     // The packs come from config.js; without it the static cards stay.
     const packs = sortedPacks(window.PACKS);
     if (packs.length > 0) {
