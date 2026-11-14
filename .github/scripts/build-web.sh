@@ -9,6 +9,8 @@
 #   prices, whether prices include VAT, and the contact address.
 # - staticwebapp.config.json: the CSP (fetches only to the account app, no
 #   inline code, no framing), Referrer-Policy and nosniff, on every response.
+# - skill/: the agent skill (skill/text-extraction/SKILL.md, with the site and
+#   the producer and consumer hosts filled in) and skill/text-extraction.zip.
 set -euo pipefail
 
 outputs=${1:?usage: $0 <terraform outputs JSON> <out dir>}
@@ -25,6 +27,7 @@ test_mode=$(bool_output testMode)
 packs=$(jq -ec '.publicPacks.value' <<<"$outputs")
 include_vat=$(bool_output pricesIncludeVat)
 contact=$(jq -r '.contactEmail.value // ""' <<<"$outputs")
+site=$(output siteUrl)
 
 rm -rf "$out"
 mkdir -p "$out"
@@ -48,8 +51,21 @@ jq -n --arg csp "$csp" '{
     "Content-Security-Policy": $csp,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff"
+  },
+  mimeTypes: {
+    ".md": "text/markdown; charset=utf-8"
   }
 }' >"$out/staticwebapp.config.json"
+
+# The hosts are URLs without "|", so it is safe as the sed delimiter.
+mkdir -p "$out/skill/text-extraction"
+sed -e "s|{{SITE_URL}}|$site|g" -e "s|{{PRODUCER_API}}|$producer|g" -e "s|{{CONSUMER_API}}|$consumer|g" \
+  "$root/skill/text-extraction/SKILL.md" >"$out/skill/text-extraction/SKILL.md"
+if grep -n '{{' "$out/skill/text-extraction/SKILL.md" >&2; then
+  echo "SKILL.md has unreplaced placeholders" >&2
+  exit 1
+fi
+(cd "$out/skill" && zip -qr text-extraction.zip text-extraction)
 
 echo "Built $out for $account:" >&2
 ls "$out" >&2
