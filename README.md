@@ -1,10 +1,10 @@
 # text-extraction
 
-Extracts the text of PDFs: [`producer`](producer) takes a PDF over HTTP, [`ocr_container`](ocr_container)
-OCRs the pages without a text layer, and [`consumer`](consumer) returns the text. See [SPEC.md](SPEC.md).
+Extracts the text of PDFs: [`producer`](services/producer) takes a PDF over HTTP, [`ocr`](services/ocr)
+OCRs the pages without a text layer, and [`consumer`](services/consumer) returns the text.
 
 Customers use the website in [`web/`](web) (a Static Web App) and its back end,
-[`account`](account): they sign in with a magic link sent by email, create and revoke their API
+[`account`](services/account): they sign in with a magic link sent by email, create and revoke their API
 keys, and buy credit packs on a Stripe Checkout page. Payments go through **Stripe Managed
 Payments**: Stripe, through Link, is the merchant of record (VAT, receipts, refunds, buyers' payment
 support, disputes); a Stripe webhook credits the pack to the key, and takes the credits back after
@@ -12,7 +12,28 @@ a refund or a lost dispute. Staging runs in Stripe test mode. Each email address
 100 free credits, once. An account can't buy past 20,000 credits, summed over its keys
 (`max_credits_per_account`); a payment that would go over anyway (several opened at once) is
 refunded automatically. Keys, balances, accounts and sessions are JSON blobs in the `billing`
-container, through the shared Go module [`billing`](billing).
+container, through the shared Go module [`billing`](libs/billing).
+
+## Repository layout
+
+```
+services/            deployable apps, one Go module each
+  producer/          Function app: POST /api/extract, admin key endpoints
+  consumer/          Function app: POST /api/text
+  account/           Function app: sign-in, API keys, Stripe checkout and webhooks
+  ocr/               Container Apps job: OCRs the queued PDFs (image ocr-container)
+libs/                Go modules shared by the services (imported through replace directives)
+  billing/           API keys, credits, accounts, sessions (blobs in the billing container)
+  contract/          payloads exchanged between producer, ocr and consumer
+  pdftest/           builds minimal PDFs for tests
+web/                 the website (Static Web App)
+infra/               Terraform (and bootstrap/ for the one-time setup)
+scripts/             ops scripts: keys.sh (admin API keys), smoke.sh (end-to-end test)
+docker/              local-dev image of the Function apps
+testdata/samples/    PDFs for the smoke test
+docker-compose.yml   local stack: emulators, the three Function apps and the OCR job
+.github/             CI and deploy workflows, and the scripts they run
+```
 
 ## Deployment
 
@@ -25,7 +46,7 @@ container per environment. The apps use managed identities only. In prod the dat
 VNet; staging has no VNet and keeps the account public (still identity-only).
 
 Callers need an API key with credits: from the website's dashboard, or issued by an admin with
-[`infra/keys.sh`](infra/keys.sh) (see [producer](producer/README.md#api-keys-and-credits)), which
+[`scripts/keys.sh`](scripts/keys.sh) (see [producer](services/producer/README.md#api-keys-and-credits)), which
 can also set any key's balance.
 
 The website (`stapp-textextract-<env>`, Free tier) is in eastus2: Static Web Apps isn't offered
@@ -77,7 +98,7 @@ created before the first deploy of this version. To rotate a secret, set it agai
 Refunds are made in the Stripe Dashboard (or by Stripe itself); the `charge.refunded` webhook
 takes the refunded share of the credits back. A payment for a key that was revoked during checkout
 credits nothing and logs an error (`stripe order not credited`) with the order id: move the credits
-with `infra/keys.sh add`, or refund the payment.
+with `scripts/keys.sh add`, or refund the payment.
 
 ### Custom domains (prod)
 
@@ -99,7 +120,7 @@ with `infra/keys.sh add`, or refund the payment.
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `ci` | pull request | `go vet` and `go test` for each component, `terraform fmt`/`validate`, and a `terraform plan` against staging posted to the PR |
-| `staging` | manual, target `all`, `infra`, `functions`, `ocr`, `functions+ocr` or `web` | Builds what the target needs (OCR image pushed to `ghcr.io/spyrosblock/ocr-container:<sha>`), runs `terraform plan`/`apply`, deploys the OCR job image, the Function apps (producer, consumer, account) and the website (with `config.js` and its headers from [`.github/scripts/build-web.sh`](.github/scripts/build-web.sh)), then runs [`infra/smoke.sh`](infra/smoke.sh) |
+| `staging` | manual, target `all`, `infra`, `functions`, `ocr`, `functions+ocr` or `web` | Builds what the target needs (OCR image pushed to `ghcr.io/spyrosblock/ocr-container:<sha>`), runs `terraform plan`/`apply`, deploys the OCR job image, the Function apps (producer, consumer, account) and the website (with `config.js` and its headers from [`.github/scripts/build-web.sh`](.github/scripts/build-web.sh)), then runs [`scripts/smoke.sh`](scripts/smoke.sh) |
 | `prod` | manual, same targets, needs approval | Same deploy for prod. The OCR image is the tag `staging` pushed for the commit, so deploy a commit to staging first |
 | `destroy` | manual, environment `staging` or `prod`, type its name to confirm (prod needs approval) | `terraform destroy`, then anything else left in the resource group. The resource group, Entra app, role assignments and (empty) state stay, so `staging`/`prod` can redeploy with target `all` |
 
@@ -114,7 +135,7 @@ terraform init -backend-config=storage_account_name=<state account> -backend-con
 # Without ocr_image the plan resets the job to the quickstart image.
 terraform plan -var-file=staging.tfvars -var ocr_image=$(az containerapp job show -g rg-textextract-staging \
   -n caj-ocr-staging --query 'properties.template.containers[0].image' -o tsv)
-./smoke.sh rg-textextract-staging
+../scripts/smoke.sh rg-textextract-staging
 ```
 
 The smoke test doesn't sign in (it would need an inbox) or pay. After a deploy that changes the

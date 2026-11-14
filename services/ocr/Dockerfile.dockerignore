@@ -1,0 +1,19 @@
+# Build context: the repo root. Only libs/ and this build's service are needed.
+.git*
+**/bin/
+**/dist/
+**/local.settings.json
+**/*.zip
+**/*_test.go
+**/testdata/
+ignore/
+infra/
+web/
+scripts/
+docker/
+testdata/
+services/producer/
+services/consumer/
+services/account/
+services/ocr/Dockerfile*
+services/ocr/README.md

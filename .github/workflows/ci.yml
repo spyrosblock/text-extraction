@@ -23,7 +23,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [billing, producer, consumer, account, ocr_container]
+        component:
+          - libs/billing
+          - libs/contract
+          - libs/pdftest
+          - services/producer
+          - services/consumer
+          - services/account
+          - services/ocr
     defaults:
       run:
         working-directory: ${{ matrix.component }}
@@ -34,9 +41,9 @@ jobs:
           go-version-file: ${{ matrix.component }}/go.mod
           cache-dependency-path: |
             ${{ matrix.component }}/go.sum
-            billing/go.sum
+            libs/billing/go.sum
       - name: Install tesseract
-        if: matrix.component == 'ocr_container'
+        if: matrix.component == 'services/ocr'
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ell
       # The integration tag also vets the integration tests, which need the
       # emulators to run.

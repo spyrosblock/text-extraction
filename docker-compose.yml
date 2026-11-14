@@ -1,4 +1,4 @@
-# Local dev: Azurite (Blob), the Service Bus emulator, the ocr_container and the
+# Local dev: Azurite (Blob), the Service Bus emulator, the ocr job and the
 # three Function apps (producer :7071, consumer :7072, account :7073).
 # docker compose up -d --build
 name: text-extraction
@@ -6,7 +6,7 @@ name: text-extraction
 x-storage: &storage "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;"
 x-servicebus: &servicebus "Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
 
-# The Function apps run in the Flex Consumption host image (functions.Dockerfile)
+# The Function apps run in the Flex Consumption host image (docker/functions.Dockerfile)
 # with the settings of their local.settings.example.json, pointed at the
 # emulators' service names. Unlike `func start`, the host enforces function
 # keys: the producer's admin endpoints need the master key, local-master-key
@@ -59,7 +59,9 @@ services:
 
   # Runs continuously (IDLE_TIMEOUT=0) instead of as a KEDA-triggered job.
   ocr:
-    build: ./ocr_container
+    build:
+      context: .
+      dockerfile: services/ocr/Dockerfile
     restart: on-failure
     environment:
       STORAGE_CONNECTION_STRING: *storage
@@ -74,7 +76,7 @@ services:
   producer:
     build:
       context: .
-      dockerfile: functions.Dockerfile
+      dockerfile: docker/functions.Dockerfile
       args: { APP: producer }
     configs: *function-configs
     restart: on-failure
@@ -93,7 +95,7 @@ services:
   consumer:
     build:
       context: .
-      dockerfile: functions.Dockerfile
+      dockerfile: docker/functions.Dockerfile
       args: { APP: consumer }
     configs: *function-configs
     restart: on-failure
@@ -107,11 +109,11 @@ services:
 
   # Payments: put STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET and PACKS (with the
   # test-mode price ids) in a .env file next to this one, then
-  # docker compose up -d account. See account/README.md.
+  # docker compose up -d account. See services/account/README.md.
   account:
     build:
       context: .
-      dockerfile: functions.Dockerfile
+      dockerfile: docker/functions.Dockerfile
       args: { APP: account }
     configs: *function-configs
     restart: on-failure

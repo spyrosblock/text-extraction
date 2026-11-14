@@ -49,7 +49,7 @@ Not committed (`.gitignore`); the `staging`/`prod` workflows write them with
 
 ## Local development
 
-With the account app running on port 7073 (see [account](../account/README.md#local-development)):
+With the account app running on port 7073 (see [account](../services/account/README.md#local-development)):
 
 ```sh
 cp config.local.js config.js

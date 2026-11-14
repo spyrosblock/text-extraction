@@ -35,15 +35,15 @@ jobs:
         app: [producer, consumer, account]
     defaults:
       run:
-        working-directory: ${{ matrix.app }}
+        working-directory: services/${{ matrix.app }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version-file: ${{ matrix.app }}/go.mod
+          go-version-file: services/${{ matrix.app }}/go.mod
           cache-dependency-path: |
-            ${{ matrix.app }}/go.sum
-            billing/go.sum
+            services/${{ matrix.app }}/go.sum
+            libs/billing/go.sum
       - run: npm install -g azure-functions-core-tools@4
       # Builds bin/app for linux/amd64 and zips it with host.json, the layout
       # the Flex Go runtime expects.
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.app }}
-          path: ${{ matrix.app }}/dist/${{ matrix.app }}.zip
+          path: services/${{ matrix.app }}/dist/${{ matrix.app }}.zip
           if-no-files-found: error
 
   # Infra first, so the OCR and function deploys find the resources.
