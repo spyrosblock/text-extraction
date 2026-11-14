@@ -22,11 +22,11 @@ filled in (see [web](web/README.md#generated-at-deploy)). Customers start by giv
 this prompt:
 
 ```text
-Download <site>/skill/text-extraction/SKILL.md with curl and follow it to extract the text of report.pdf.
+Download https://gentle-hill-0221c2b0f.5.azurestaticapps.net/skill/text-extraction/SKILL.md with curl and follow it to extract the text of report.pdf.
 ```
 
-`<site>` is the website's address (the `siteUrl` output: `https://www.<domain>` in prod). Without
-a key, the agent walks the user through signing in, creating a key and pasting it into the chat.
+Without a key, the agent walks the user through signing in, creating a key and pasting it into the
+chat. The website's home page shows the same prompt with its own address.
 
 ## Repository layout
 
