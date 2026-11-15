@@ -14,6 +14,10 @@ a refund or a lost dispute. Staging runs in Stripe test mode. Each email address
 refunded automatically. Keys, balances, accounts and sessions are JSON blobs in the `billing`
 container, through the shared Go module [`billing`](libs/billing).
 
+## Demo
+
+[![Demo video](https://img.youtube.com/vi/fT8-rVpHvWQ/hqdefault.jpg)](https://youtu.be/fT8-rVpHvWQ)
+
 ## Agent skill
 
 AI agents (Claude, Codex, Cursor, …) can use the API through the skill in
